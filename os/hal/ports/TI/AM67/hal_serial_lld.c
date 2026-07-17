@@ -144,15 +144,43 @@ static void set_error(SerialDriver *sdp, uint32_t lsr) {
   osalSysUnlockFromISR();
 }
 
+/**
+ * @brief   Loads the TX FIFO from the output queue.
+ * @details Must be called with the transmitter idle (LSR THRE set) and
+ *          from within a lock zone. Disables the THR empty interrupt when
+ *          the output queue runs dry.
+ *
+ * @param[in] sdp       pointer to a @p SerialDriver object
+ */
+static void load_tx_fifo(SerialDriver *sdp) {
+  uint32_t n;
+
+  for (n = 0U; n < UART_TX_FIFO_DEPTH; n++) {
+    msg_t b = sdRequestDataI(sdp);
+    if (b < MSG_OK) {
+      u_putreg(sdp, UART_IER_OFFSET,
+               u_getreg(sdp, UART_IER_OFFSET) & ~UART_IER_ETBEI);
+      break;
+    }
+    u_putreg(sdp, UART_THR_OFFSET, (uint32_t)b);
+  }
+}
+
 #if (AM67_SERIAL_USE_UART1 == TRUE) || defined(__DOXYGEN__)
 static void notify1(io_queue_t *qp) {
 
   (void)qp;
 
-  /* Enabling the THR empty interrupt starts (or continues) transmission,
-     the 16550 raises it immediately when the FIFO is already empty.*/
   u_putreg(&SD1, UART_IER_OFFSET,
            u_getreg(&SD1, UART_IER_OFFSET) | UART_IER_ETBEI);
+
+  /* The THR empty interrupt fires on the empty transition only: when the
+     transmitter is already idle there is no transition and nothing would
+     ever start, prime the FIFO directly (NuttX u16550_txint() applies the
+     same workaround, "fake a TX interrupt").*/
+  if ((u_getreg(&SD1, UART_LSR_OFFSET) & UART_LSR_THRE) != 0U) {
+    load_tx_fifo(&SD1);
+  }
 }
 #endif
 
@@ -213,24 +241,13 @@ void sd_lld_serve_interrupt(SerialDriver *sdp) {
       osalSysUnlockFromISR();
       break;
 
-    case UART_IIR_INTID_THRE: {
+    case UART_IIR_INTID_THRE:
       /* TX holding register empty: refill up to a FIFO worth of data,
          disable the TX interrupt when the output queue runs dry.*/
-      uint32_t n;
-
       osalSysLockFromISR();
-      for (n = 0U; n < UART_TX_FIFO_DEPTH; n++) {
-        msg_t b = sdRequestDataI(sdp);
-        if (b < MSG_OK) {
-          u_putreg(sdp, UART_IER_OFFSET,
-                   u_getreg(sdp, UART_IER_OFFSET) & ~UART_IER_ETBEI);
-          break;
-        }
-        u_putreg(sdp, UART_THR_OFFSET, (uint32_t)b);
-      }
+      load_tx_fifo(sdp);
       osalSysUnlockFromISR();
       break;
-    }
 
     default:
       /* Modem status or unexpected identification: reading MSR clears
