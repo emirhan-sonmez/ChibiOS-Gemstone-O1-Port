@@ -29,6 +29,7 @@
 #include "board.h"
 #include "am67_vim.h"
 #include "am67_tick.h"
+#include "am67_uart.h"
 #include "trace.h"
 
 static volatile uint32_t thread_counter;
@@ -106,6 +107,16 @@ int main(void) {
    * RTOS is active.
    */
   chSysInit();
+  
+  /*
+   * UART1 bring-up (Stage A). Pinmux is intentionally skipped: Linux
+   * already routes UART1 to the header pins (verified via /dev/ttyS3).
+   */
+  trace_printf("uart: init begin\n");
+  am67_uart1_init(AM67_UART_DIV_115200);
+  trace_printf("uart: init done\n");
+  am67_uart1_puts("UART1 started from ChibiOS\n");
+  trace_printf("uart: first message sent\n");
 
   trace_printf("kernel started, tick at %u Hz\n",
                (uint32_t)CH_CFG_ST_FREQUENCY);
@@ -127,6 +138,8 @@ int main(void) {
   while (true) {
     chThdSleepMilliseconds(1000);
     main_counter++;
+    
+    am67_uart1_puts("UART1 alive from ChibiOS\n");
 
 #if CORTEX_USE_FPU == TRUE
     trace_printf("alive: main=%u thread=%u fpu=%u fpu_errors=%u\n",
