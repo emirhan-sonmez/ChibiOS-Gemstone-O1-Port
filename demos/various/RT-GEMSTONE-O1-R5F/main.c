@@ -55,6 +55,26 @@ static THD_FUNCTION(Thread1, arg) {
   }
 }
 
+/*
+ * UART RX echo thread: any character received on UART1 is sent back,
+ * proving the receive direction of the Stage A driver.
+ */
+static THD_WORKING_AREA(waEchoThread, 256);
+static THD_FUNCTION(EchoThread, arg) {
+  int c;
+
+  (void)arg;
+
+  chRegSetThreadName("uart-echo");
+
+  while (true) {
+    while ((c = am67_uart1_getc()) >= 0) {
+      am67_uart1_putc((char)c);
+    }
+    chThdSleepMilliseconds(10);
+  }
+}
+
 #if CORTEX_USE_FPU == TRUE
 /*
  * FPU context switching test thread, the d8 marker register must survive
@@ -125,6 +145,12 @@ int main(void) {
                            sizeof(waThread1),
                            NORMALPRIO,
                            Thread1,
+                           NULL);
+
+  (void) chThdCreateStatic(waEchoThread,
+                           sizeof(waEchoThread),
+                           NORMALPRIO,
+                           EchoThread,
                            NULL);
 
 #if CORTEX_USE_FPU == TRUE
