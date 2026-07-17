@@ -25,6 +25,12 @@
 #define BOARD_H
 
 /*
+ * Board identifier.
+ */
+#define BOARD_T3_GEMSTONE_O1_R5F
+#define BOARD_NAME              "T3 Gemstone O1 (AM67A/J722S) R5F"
+
+/*
  * Memory map as seen by the R5FSS0 core 0 (WKUP domain).
  */
 #define AM67_ATCM_BASE          0x00000000U
@@ -56,5 +62,15 @@
 #define AM67_TIMER0_BASE        0x02400000U
 #define AM67_TIMER0_CLK_HZ      25000000U
 #define AM67_TIMER0_IRQ         24U
+
+#if !defined(_FROM_ASM_)
+#ifdef __cplusplus
+extern "C" {
+#endif
+  void boardInit(void);
+#ifdef __cplusplus
+}
+#endif
+#endif /* _FROM_ASM_ */
 
 #endif /* BOARD_H */

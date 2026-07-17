@@ -15,19 +15,19 @@
 */
 
 /**
- * @file    am67_tick.h
- * @brief   DMTIMER-based system tick for the AM67A/J722S R5F.
+ * @file    mcuconf.h
+ * @brief   AM67 (J722S) R5F driver configuration.
  */
 
-#ifndef AM67_TICK_H
-#define AM67_TICK_H
+#ifndef MCUCONF_H
+#define MCUCONF_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-  void am67_tick_init(void);
-#ifdef __cplusplus
-}
-#endif
+#define AM67_MCUCONF
 
-#endif /* AM67_TICK_H */
+/*
+ * SERIAL driver system settings.
+ */
+#define AM67_SERIAL_USE_UART1               TRUE
+#define AM67_SERIAL_UART1_IRQ_PRIORITY      0x8U
+
+#endif /* MCUCONF_H */

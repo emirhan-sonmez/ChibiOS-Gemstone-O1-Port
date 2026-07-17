@@ -272,3 +272,12 @@ void __late_init(void) {
 
   boot_mark(0x14U, 0xB0070006U);
 }
+
+/*
+ * Board-specific initialization, invoked by halInit() after the drivers.
+ * Clocks and pinmux are owned by the Linux host on this board, the MPU
+ * and caches are configured by tcm_early_init() long before this point,
+ * nothing is left to do here.
+ */
+void boardInit(void) {
+}

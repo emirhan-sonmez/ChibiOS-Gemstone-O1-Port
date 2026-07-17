@@ -18,18 +18,18 @@
  * @file    main.c
  * @brief   ChibiOS/RT bring-up demo for the T3 Gemstone O1 Cortex-R5F.
  * @details Two threads increment counters, progress is periodically logged
- *          to the RemoteProc trace buffer. On the Linux host:
+ *          to the RemoteProc trace buffer and to the SD1 serial port (UART1,
+ *          40-pin header pins 8/10, 115200 8N1). Characters received on SD1
+ *          are echoed back. On the Linux host:
  *
- *          cat /sys/kernel/debug/remoteproc/remoteproc0/trace0
+ *          cat /sys/kernel/debug/remoteproc/remoteproc3/trace0
  */
 
-#include "armcr5.h"
-#include "ch.h"
+#include <string.h>
 
-#include "board.h"
-#include "am67_vim.h"
-#include "am67_tick.h"
-#include "am67_uart.h"
+#include "ch.h"
+#include "hal.h"
+
 #include "trace.h"
 
 static volatile uint32_t thread_counter;
@@ -38,6 +38,11 @@ static volatile uint32_t main_counter;
 static volatile uint32_t fpu_thread_counter;
 static volatile uint32_t fpu_error_counter;
 #endif
+
+static void sd1_puts(const char *s) {
+
+  chnWrite(&SD1, (const uint8_t *)s, strlen(s));
+}
 
 /*
  * RTOS example thread.
@@ -56,22 +61,22 @@ static THD_FUNCTION(Thread1, arg) {
 }
 
 /*
- * UART RX echo thread: any character received on UART1 is sent back,
- * proving the receive direction of the Stage A driver.
+ * UART RX echo thread: any character received on SD1 is sent back. The
+ * thread sleeps inside chnGetTimeout() until the UART interrupt pushes a
+ * received byte into the input queue, no polling involved.
  */
 static THD_WORKING_AREA(waEchoThread, 256);
 static THD_FUNCTION(EchoThread, arg) {
-  int c;
 
   (void)arg;
 
   chRegSetThreadName("uart-echo");
 
   while (true) {
-    while ((c = am67_uart1_getc()) >= 0) {
-      am67_uart1_putc((char)c);
+    msg_t c = chnGetTimeout(&SD1, TIME_INFINITE);
+    if (c >= MSG_OK) {
+      chnPutTimeout(&SD1, (uint8_t)c, TIME_INFINITE);
     }
-    chThdSleepMilliseconds(10);
   }
 }
 
@@ -115,27 +120,28 @@ static THD_FUNCTION(Thread2, arg) {
 int main(void) {
 
   trace_init();
-  trace_printf("ChibiOS/RT on T3 Gemstone O1 R5F\n");
+  trace_printf("ChibiOS/RT on %s\n", BOARD_NAME);
   trace_printf("port: %s, core: %s\n",
                PORT_ARCHITECTURE_NAME, PORT_CORE_VARIANT_NAME);
 
-  vim_init();
-  am67_tick_init();
+  /*
+   * HAL initialization: platform (VIM), drivers (SD1 object), board hook
+   * and the ST tick timer, in that order.
+   */
+  halInit();
 
   /*
    * System initialization, the main() function becomes a thread and the
    * RTOS is active.
    */
   chSysInit();
-  
+
   /*
-   * UART1 bring-up (Stage A). Pinmux is intentionally skipped: Linux
-   * already routes UART1 to the header pins (verified via /dev/ttyS3).
+   * Activates SD1 (UART1) with the default configuration (115200 8N1).
    */
-  trace_printf("uart: init begin\n");
-  am67_uart1_init(AM67_UART_DIV_115200);
-  trace_printf("uart: init done\n");
-  am67_uart1_puts("UART1 started from ChibiOS\n");
+  trace_printf("uart: starting SD1\n");
+  sdStart(&SD1, NULL);
+  sd1_puts("SD1 started from the ChibiOS HAL\r\n");
   trace_printf("uart: first message sent\n");
 
   trace_printf("kernel started, tick at %u Hz\n",
@@ -164,8 +170,8 @@ int main(void) {
   while (true) {
     chThdSleepMilliseconds(1000);
     main_counter++;
-    
-    am67_uart1_puts("UART1 alive from ChibiOS\n");
+
+    sd1_puts("SD1 alive from ChibiOS\r\n");
 
 #if CORTEX_USE_FPU == TRUE
     trace_printf("alive: main=%u thread=%u fpu=%u fpu_errors=%u\n",

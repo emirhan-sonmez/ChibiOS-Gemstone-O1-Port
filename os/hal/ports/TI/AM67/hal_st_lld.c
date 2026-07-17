@@ -15,17 +15,19 @@
 */
 
 /**
- * @file    am67_tick.c
- * @brief   DMTIMER0 system tick for the AM67A/J722S R5F.
- * @details The timer counts up from a preloaded value and interrupts on
+ * @file    TI/AM67/hal_st_lld.c
+ * @brief   ST Driver subsystem low level driver source.
+ * @details DMTIMER0 counts up from a preloaded value and interrupts on
  *          overflow, auto-reloading for a periodic tick. Register layout
  *          from the TI J722S TRM, matches the NuttX am67 tick timer.
+ *
+ * @addtogroup ST
+ * @{
  */
 
-#include "ch.h"
-#include "board.h"
-#include "am67_vim.h"
-#include "am67_tick.h"
+#include "hal.h"
+
+#if (OSAL_ST_MODE != OSAL_ST_MODE_NONE) || defined(__DOXYGEN__)
 
 #define TIMER_IRQ_EOI           0x20U
 #define TIMER_IRQSTATUS         0x28U
@@ -70,11 +72,16 @@ static bool tick_irq_handler(void *arg) {
   return preemption_required;
 }
 
-void am67_tick_init(void) {
+/**
+ * @brief   Low level ST driver initialization.
+ *
+ * @notapi
+ */
+void st_lld_init(void) {
   uint32_t reload;
 
-  /* Counter value producing CH_CFG_ST_FREQUENCY overflows per second.*/
-  reload = 0xFFFFFFFFU - (AM67_TIMER0_CLK_HZ / CH_CFG_ST_FREQUENCY) + 1U;
+  /* Counter value producing OSAL_ST_FREQUENCY overflows per second.*/
+  reload = 0xFFFFFFFFU - (AM67_TIMER0_CLK_HZ / OSAL_ST_FREQUENCY) + 1U;
 
   /* Stop the timer and clear any pending overflow interrupt.*/
   *tmr_reg(TIMER_TCLR) = 0U;
@@ -92,3 +99,7 @@ void am67_tick_init(void) {
   /* Start counting.*/
   *tmr_reg(TIMER_TCLR) = TIMER_TCLR_ST | TIMER_TCLR_AR;
 }
+
+#endif /* OSAL_ST_MODE != OSAL_ST_MODE_NONE */
+
+/** @} */
