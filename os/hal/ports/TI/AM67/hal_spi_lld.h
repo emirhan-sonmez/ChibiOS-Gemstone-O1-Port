@@ -48,6 +48,9 @@
 
 /**
  * @name    MCU_MCSPI0 instance parameters
+ * @details This is the instance wired to the 40-pin header SPI positions
+ *          (Linux exposes it as 4b00000.spi / spidev0.*), confirmed via
+ *          the SYST pin continuity test with a D0-D1 jumper.
  * @{
  */
 #define AM67_MCSPI0_BASE       0x04B00000U
@@ -62,6 +65,7 @@
 #define MCSPI_SYSSTATUS_OFFSET      0x114U
 #define MCSPI_IRQSTATUS_OFFSET      0x118U
 #define MCSPI_IRQENABLE_OFFSET      0x11CU
+#define MCSPI_SYST_OFFSET           0x124U
 #define MCSPI_MODULCTRL_OFFSET      0x128U
 #define MCSPI_CHCONF0_OFFSET        0x12CU
 #define MCSPI_CHSTAT0_OFFSET        0x130U
@@ -90,10 +94,19 @@
 #define MCSPI_IRQ_TX0_UNDERFLOW     (1U << 1)
 #define MCSPI_IRQ_RX0_FULL          (1U << 2)
 
+/* SYST bits (system test mode, MODULCTRL SYSTEM_TEST must be set) ***********/
+
+#define MCSPI_SYST_SPIDAT_0         (1U << 4)  /* D0 pad drive/read value    */
+#define MCSPI_SYST_SPIDAT_1         (1U << 5)  /* D1 pad drive/read value    */
+#define MCSPI_SYST_SPICLK           (1U << 6)  /* CLK pad drive/read value   */
+#define MCSPI_SYST_SPIDATDIR0       (1U << 8)  /* 1 = D0 is an input         */
+#define MCSPI_SYST_SPIDATDIR1       (1U << 9)  /* 1 = D1 is an input         */
+
 /* MODULCTRL bits ************************************************************/
 
 #define MCSPI_MODULCTRL_SINGLE      (1U << 0)  /* Single channel mode        */
 #define MCSPI_MODULCTRL_MS          (1U << 2)  /* 1 = slave, 0 = master      */
+#define MCSPI_MODULCTRL_SYSTEM_TEST (1U << 3)  /* System test (SYST) mode    */
 
 /* CHCONF bits ***************************************************************/
 
@@ -130,14 +143,14 @@
 
 /**
  * @brief   SPID1 driver enable switch.
- * @details If set to @p TRUE the support for MCU_MCSPI0 is included.
+ * @details If set to @p TRUE the support for main-domain MCSPI0 is included.
  */
 #if !defined(AM67_SPI_USE_MCSPI0) || defined(__DOXYGEN__)
 #define AM67_SPI_USE_MCSPI0    FALSE
 #endif
 
 /**
- * @brief   MCU_MCSPI0 interrupt priority level setting.
+ * @brief   MCSPI0 interrupt priority level setting.
  */
 #if !defined(AM67_SPI_MCSPI0_IRQ_PRIORITY) || defined(__DOXYGEN__)
 #define AM67_SPI_MCSPI0_IRQ_PRIORITY    0x8U
@@ -168,7 +181,9 @@
   /* Receive pointer, NULL discards received frames.*/                      \
   uint8_t                   *rxptr;                                         \
   /* Frames still to be exchanged.*/                                        \
-  size_t                    remaining;
+  size_t                    remaining;                                      \
+  /* False when the module failed to come out of reset (clock gated).*/     \
+  bool                      ready;
 
 /**
  * @brief   Low level fields of the SPI configuration structure.

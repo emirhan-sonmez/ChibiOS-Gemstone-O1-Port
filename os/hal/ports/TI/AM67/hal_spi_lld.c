@@ -20,9 +20,9 @@
  * @details Interrupt-driven driver for the TI McSPI in single-channel
  *          master mode, one frame in flight at a time (RX0_FULL paced).
  *          Controller init sequence and channel configuration derived from
- *          NuttX arch/arm/src/am67/am67_mcspi.c (Apache-2.0). The MCU
- *          domain pads are muxed here (mode 0) because the Linux device
- *          tree does not touch them, unlike the main-domain UART pads.
+ *          NuttX arch/arm/src/am67/am67_mcspi.c (Apache-2.0). The SPI0
+ *          pads are muxed here (mode 0) in case the Linux device tree
+ *          leaves them unconfigured (the write is idempotent otherwise).
  *
  * @addtogroup SPI
  * @{
@@ -36,20 +36,24 @@
 /* Driver local definitions.                                                 */
 /*===========================================================================*/
 
-/* MCU domain PADCFG control module: pad registers are write-protected
-   until the KICK registers are written with the unlock values (same
-   values as the main domain module used for the UART pads).*/
-#define AM67_MCU_PADCFG_CTRL_BASE   0x04080000U
-#define AM67_MCU_PADCFG_KICK0       (AM67_MCU_PADCFG_CTRL_BASE + 0x1008U)
-#define AM67_MCU_PADCFG_KICK1       (AM67_MCU_PADCFG_CTRL_BASE + 0x5008U)
+/* MCU-domain PADCFG control module: pad registers are write-protected
+   until BOTH lock regions are unlocked, and each lock region has TWO
+   adjacent KICK registers that both must be written (KICK0 at +0x?008,
+   KICK1 at +0x?00C). Writing only one register of a pair leaves the lock
+   closed and pad writes are silently ignored.*/
+#define AM67_PADCFG_CTRL_BASE       0x04080000U
+#define AM67_PADCFG_LOCK0_KICK0     (AM67_PADCFG_CTRL_BASE + 0x1008U)
+#define AM67_PADCFG_LOCK0_KICK1     (AM67_PADCFG_CTRL_BASE + 0x100CU)
+#define AM67_PADCFG_LOCK1_KICK0     (AM67_PADCFG_CTRL_BASE + 0x5008U)
+#define AM67_PADCFG_LOCK1_KICK1     (AM67_PADCFG_CTRL_BASE + 0x500CU)
 #define AM67_KICK0_UNLOCK           0x68EF3490U
 #define AM67_KICK1_UNLOCK           0xD172BC5AU
 
-#define AM67_MCU_PADCFG_BASE        (AM67_MCU_PADCFG_CTRL_BASE + 0x4000U)
-#define AM67_PAD_MCU_SPI0_CS0       (AM67_MCU_PADCFG_BASE + 0x0000U)
-#define AM67_PAD_MCU_SPI0_CLK       (AM67_MCU_PADCFG_BASE + 0x0008U)
-#define AM67_PAD_MCU_SPI0_D0        (AM67_MCU_PADCFG_BASE + 0x000CU)
-#define AM67_PAD_MCU_SPI0_D1        (AM67_MCU_PADCFG_BASE + 0x0010U)
+#define AM67_PADCFG_BASE            (AM67_PADCFG_CTRL_BASE + 0x4000U)
+#define AM67_PAD_SPI0_CS0           (AM67_PADCFG_BASE + 0x0000U)
+#define AM67_PAD_SPI0_CLK           (AM67_PADCFG_BASE + 0x0008U)
+#define AM67_PAD_SPI0_D0            (AM67_PADCFG_BASE + 0x000CU)
+#define AM67_PAD_SPI0_D1            (AM67_PADCFG_BASE + 0x0010U)
 
 #define AM67_PIN_MODE(m)            ((uint32_t)(m))
 #define AM67_PIN_PULL_DISABLE       (1U << 16)
@@ -63,7 +67,7 @@
 /* Driver exported variables.                                                */
 /*===========================================================================*/
 
-/** @brief MCU_MCSPI0 SPI driver identifier.*/
+/** @brief Main-domain MCSPI0 SPI driver identifier.*/
 #if (AM67_SPI_USE_MCSPI0 == TRUE) || defined(__DOXYGEN__)
 SPIDriver SPID1;
 #endif
@@ -89,22 +93,24 @@ static inline void reg_write(uint32_t address, uint32_t value) {
 }
 
 /*
- * Routes MCU_SPI0 CLK/D0/D1/CS0 pads to the McSPI (mux mode 0). CLK and
- * both data pads get the receiver enabled, D0 input is what makes the
+ * Routes SPI0 CLK/D0/D1/CS0 pads to the McSPI (mux mode 0). CLK and both
+ * data pads get the receiver enabled, D0 input is what makes the
  * MOSI-MISO jumper loopback test possible (matches the NuttX pad setup).
  */
 static void spi0_pinmux(void) {
 
-  reg_write(AM67_MCU_PADCFG_KICK0, AM67_KICK0_UNLOCK);
-  reg_write(AM67_MCU_PADCFG_KICK1, AM67_KICK1_UNLOCK);
+  reg_write(AM67_PADCFG_LOCK0_KICK0, AM67_KICK0_UNLOCK);
+  reg_write(AM67_PADCFG_LOCK0_KICK1, AM67_KICK1_UNLOCK);
+  reg_write(AM67_PADCFG_LOCK1_KICK0, AM67_KICK0_UNLOCK);
+  reg_write(AM67_PADCFG_LOCK1_KICK1, AM67_KICK1_UNLOCK);
 
-  reg_write(AM67_PAD_MCU_SPI0_CLK,
+  reg_write(AM67_PAD_SPI0_CLK,
             AM67_PIN_MODE(0) | AM67_PIN_INPUT_ENABLE | AM67_PIN_PULL_DISABLE);
-  reg_write(AM67_PAD_MCU_SPI0_D0,
+  reg_write(AM67_PAD_SPI0_D0,
             AM67_PIN_MODE(0) | AM67_PIN_INPUT_ENABLE | AM67_PIN_PULL_DISABLE);
-  reg_write(AM67_PAD_MCU_SPI0_D1,
+  reg_write(AM67_PAD_SPI0_D1,
             AM67_PIN_MODE(0) | AM67_PIN_INPUT_ENABLE | AM67_PIN_PULL_DISABLE);
-  reg_write(AM67_PAD_MCU_SPI0_CS0,
+  reg_write(AM67_PAD_SPI0_CS0,
             AM67_PIN_MODE(0) | AM67_PIN_PULL_DISABLE);
 }
 
@@ -136,18 +142,28 @@ static bool spi_wait_chstat(SPIDriver *spip, uint32_t flag) {
  */
 static void mcspi_init(SPIDriver *spip) {
   const SPIConfig *config = spip->config;
-  uint32_t chconf, chctrl, div;
+  uint32_t chconf, chctrl, div, i;
+
+  spip->ready = false;
 
   /* No-idle so the interconnect does not gate the functional clock while
      CHSTAT is polled (K3 HL wrapper).*/
   spi_putreg(spip, MCSPI_HL_SYSCONFIG_OFFSET, MCSPI_HL_SYSCONFIG_NOIDLE);
 
-  /* Module soft reset.*/
+  /* Module soft reset. The wait is bounded: if the module clock is gated
+     RESETDONE never rises and an unbounded loop here would freeze the
+     whole system, spi_lld_start() runs in a lock zone.*/
   spi_putreg(spip, MCSPI_SYSCONFIG_OFFSET,
              spi_getreg(spip, MCSPI_SYSCONFIG_OFFSET) |
              MCSPI_SYSCONFIG_SOFTRESET);
-  while ((spi_getreg(spip, MCSPI_SYSSTATUS_OFFSET) &
-          MCSPI_SYSSTATUS_RESETDONE) == 0U) {
+  for (i = 0U; i < MCSPI_WAIT_LOOPS; i++) {
+    if ((spi_getreg(spip, MCSPI_SYSSTATUS_OFFSET) &
+         MCSPI_SYSSTATUS_RESETDONE) != 0U) {
+      break;
+    }
+  }
+  if (i >= MCSPI_WAIT_LOOPS) {
+    return;
   }
 
   spi_putreg(spip, MCSPI_SYSCONFIG_OFFSET,
@@ -190,6 +206,8 @@ static void mcspi_init(SPIDriver *spip) {
 
   /* Channel enabled, idle until FORCE asserts the CS.*/
   spi_putreg(spip, MCSPI_CHCTRL0_OFFSET, chctrl | MCSPI_CHCTRL_EN);
+
+  spip->ready = true;
 }
 
 /**
