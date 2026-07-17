@@ -61,6 +61,13 @@ static THD_FUNCTION(Thread1, arg) {
 }
 
 /*
+ * The SPI test runs on demand: pressing 's' on the serial console
+ * signals this semaphore, so the test can be started after the Linux
+ * side has been prepared (e.g. its McSPI driver unbound).
+ */
+static BSEMAPHORE_DECL(spi_trigger_bsem, true);
+
+/*
  * UART RX echo thread: any character received on SD1 is sent back. The
  * thread sleeps inside chnGetTimeout() until the UART interrupt pushes a
  * received byte into the input queue, no polling involved.
@@ -75,6 +82,9 @@ static THD_FUNCTION(EchoThread, arg) {
   while (true) {
     msg_t c = chnGetTimeout(&SD1, TIME_INFINITE);
     if (c >= MSG_OK) {
+      if ((char)c == 's') {
+        chBSemSignal(&spi_trigger_bsem);
+      }
       chnPutTimeout(&SD1, (uint8_t)c, TIME_INFINITE);
     }
   }
@@ -104,17 +114,33 @@ static THD_FUNCTION(SpiTestThread, arg) {
 
   chRegSetThreadName("spi-test");
 
-  trace_printf("spi: starting SPID1\n");
-  spiStart(&SPID1, &spicfg);
-  trace_printf("spi: started, ready=%u\n", (uint32_t)SPID1.ready);
-  trace_printf("spi: pads CS0=%x CLK=%x D0=%x D1=%x "
-               "(expect 10000/50000/50000/50000)\n",
-               *(volatile uint32_t *)0x04084000U,
-               *(volatile uint32_t *)0x04084008U,
-               *(volatile uint32_t *)0x0408400CU,
-               *(volatile uint32_t *)0x04084010U);
+  while (true) {
+    extern volatile uint32_t am67_spi_isr_count, am67_spi_frames,
+                             am67_spi_ien_exit[8];
+    unsigned k;
 
-  if (SPID1.ready) {
+    /* Wait for the 's' key on the serial console before each run, so the
+       Linux side can be prepared first (unbind its McSPI driver).*/
+    sd1_puts("press 's' to run the SPI test\r\n");
+    (void) chBSemWait(&spi_trigger_bsem);
+
+    am67_spi_isr_count = 0U;
+    am67_spi_frames = 0U;
+    for (k = 0U; k < 8U; k++) {
+      am67_spi_ien_exit[k] = 0U;
+    }
+
+    trace_printf("spi: starting SPID1\n");
+    spiStart(&SPID1, &spicfg);
+    trace_printf("spi: started, ready=%u\n", (uint32_t)SPID1.ready);
+    trace_printf("spi: pads CS0=%x CLK=%x D0=%x D1=%x "
+                 "(expect 10000/50000/50000/50000)\n",
+                 *(volatile uint32_t *)0x04084000U,
+                 *(volatile uint32_t *)0x04084008U,
+                 *(volatile uint32_t *)0x0408400CU,
+                 *(volatile uint32_t *)0x04084010U);
+
+    if (SPID1.ready) {
     unsigned i;
     uint32_t lo, hi;
 
@@ -155,10 +181,14 @@ static THD_FUNCTION(SpiTestThread, arg) {
                    spi_rx[4], spi_rx[5], spi_rx[6], spi_rx[7]);
       sd1_puts("SPI loopback MISMATCH (jumper D0-D1 missing?)\r\n");
     }
-  }
-  else {
-    trace_printf("spi: module did not leave reset (clock gated?)\n");
-    sd1_puts("SPI module not ready (clock gated?)\r\n");
+    }
+    else {
+      trace_printf("spi: module did not leave reset (clock gated?)\n");
+      sd1_puts("SPI module not ready (clock gated?)\r\n");
+    }
+
+    trace_printf("spi: run done, isr_count=%u frames=%u\n",
+                 am67_spi_isr_count, am67_spi_frames);
   }
 }
 
@@ -262,6 +292,47 @@ int main(void) {
   while (true) {
     chThdSleepMilliseconds(1000);
     main_counter++;
+
+    /* One-shot diagnostic while the SPI test thread is presumably stuck:
+       the McSPI interrupt state and every asserted VIM line (raw status,
+       independent of enables). IRQ 207 = group 6 bit 15.*/
+    if (main_counter == 3U) {
+      extern volatile uint32_t am67_spi_isr_count, am67_spi_frames,
+                               am67_spi_ien_rb, am67_spi_ien_exit[8];
+      uint32_t g;
+
+      trace_printf("spi-dbg: IRQENABLE=%x IRQSTATUS=%x CHSTAT0=%x\n",
+                   SPI_DBG_REG(MCSPI_IRQENABLE_OFFSET),
+                   SPI_DBG_REG(MCSPI_IRQSTATUS_OFFSET),
+                   SPI_DBG_REG(MCSPI_CHSTAT0_OFFSET));
+      trace_printf("spi-dbg: isr_count=%u frames=%u ien_readback=%x "
+                   "state=%u remaining=%u\n",
+                   am67_spi_isr_count, am67_spi_frames, am67_spi_ien_rb,
+                   (uint32_t)SPID1.state, (uint32_t)SPID1.remaining);
+      trace_printf("spi-dbg: ien at isr exits: %x %x %x %x %x %x %x %x\n",
+                   am67_spi_ien_exit[0], am67_spi_ien_exit[1],
+                   am67_spi_ien_exit[2], am67_spi_ien_exit[3],
+                   am67_spi_ien_exit[4], am67_spi_ien_exit[5],
+                   am67_spi_ien_exit[6], am67_spi_ien_exit[7]);
+      for (g = 0U; g < 16U; g += 4U) {
+        trace_printf("vim-raw[%u..%u]: %x %x %x %x\n", g * 32U,
+                     (g + 4U) * 32U - 1U,
+                     *(volatile uint32_t *)(0x2FFF0400U + ((g + 0U) * 0x20U)),
+                     *(volatile uint32_t *)(0x2FFF0400U + ((g + 1U) * 0x20U)),
+                     *(volatile uint32_t *)(0x2FFF0400U + ((g + 2U) * 0x20U)),
+                     *(volatile uint32_t *)(0x2FFF0400U + ((g + 3U) * 0x20U)));
+      }
+    }
+
+    /* Recovery experiment: while the exchange is stuck, re-arm the RX
+       interrupt. If each re-arm advances the transfer by one frame the
+       delivery path is healthy and only the enable bit is being killed
+       by an external agent (Linux still owns this controller).*/
+    if ((main_counter >= 4U) && (SPID1.state == SPI_ACTIVE)) {
+      trace_printf("spi-dbg: re-arming, remaining=%u\n",
+                   (uint32_t)SPID1.remaining);
+      SPI_DBG_REG(MCSPI_IRQENABLE_OFFSET) = MCSPI_IRQ_RX0_FULL;
+    }
 
     sd1_puts("SD1 alive from ChibiOS\r\n");
 

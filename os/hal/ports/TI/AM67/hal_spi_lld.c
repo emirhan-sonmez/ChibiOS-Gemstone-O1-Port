@@ -72,6 +72,12 @@
 SPIDriver SPID1;
 #endif
 
+/* Bring-up instrumentation, read from the demo's diagnostic dump.*/
+volatile uint32_t am67_spi_isr_count;   /* IRQ handler entries.             */
+volatile uint32_t am67_spi_frames;      /* Frames consumed by the ISR.      */
+volatile uint32_t am67_spi_ien_rb;      /* IRQENABLE read-back after arm.   */
+volatile uint32_t am67_spi_ien_exit[8]; /* IRQENABLE at each ISR exit.      */
+
 /*===========================================================================*/
 /* Driver local functions.                                                   */
 /*===========================================================================*/
@@ -230,6 +236,7 @@ static void spi_start_transfer(SPIDriver *spip, size_t n,
 
   spi_putreg(spip, MCSPI_IRQSTATUS_OFFSET, 0xFFFFFFFFU);
   spi_putreg(spip, MCSPI_IRQENABLE_OFFSET, MCSPI_IRQ_RX0_FULL);
+  am67_spi_ien_rb = spi_getreg(spip, MCSPI_IRQENABLE_OFFSET);
 
   first = 0xFFU;
   if (spip->txptr != NULL) {
@@ -249,6 +256,7 @@ static void spi_serve_interrupt(SPIDriver *spip) {
           MCSPI_IRQ_RX0_FULL) != 0U) {
     uint32_t frame = spi_getreg(spip, MCSPI_RX0_OFFSET);
 
+    am67_spi_frames++;
     spi_putreg(spip, MCSPI_IRQSTATUS_OFFSET, MCSPI_IRQ_RX0_FULL);
 
     if (spip->rxptr != NULL) {
@@ -281,7 +289,12 @@ static bool mcspi0_irq_handler(void *arg) {
 
   (void)arg;
 
+  am67_spi_isr_count++;
   spi_serve_interrupt(&SPID1);
+  if (am67_spi_isr_count <= 8U) {
+    am67_spi_ien_exit[am67_spi_isr_count - 1U] =
+      spi_getreg(&SPID1, MCSPI_IRQENABLE_OFFSET);
+  }
 
   chSysLockFromISR();
   preemption_required = chSchIsPreemptionRequired();
