@@ -30,4 +30,10 @@
 #define AM67_SERIAL_USE_UART1               TRUE
 #define AM67_SERIAL_UART1_IRQ_PRIORITY      0x8U
 
+/*
+ * SPI driver system settings.
+ */
+#define AM67_SPI_USE_MCSPI0                 TRUE
+#define AM67_SPI_MCSPI0_IRQ_PRIORITY        0x8U
+
 #endif /* MCUCONF_H */
