@@ -39,9 +39,28 @@ static volatile uint32_t fpu_thread_counter;
 static volatile uint32_t fpu_error_counter;
 #endif
 
+/* Several threads share the console, the mutex keeps their messages from
+   interleaving mid-line.*/
+static MUTEX_DECL(sd1_mtx);
+
 static void sd1_puts(const char *s) {
 
+  chMtxLock(&sd1_mtx);
   chnWrite(&SD1, (const uint8_t *)s, strlen(s));
+  chMtxUnlock(&sd1_mtx);
+}
+
+/* Prints a byte as two hexadecimal digits.*/
+static void sd1_puthex(uint8_t value) {
+  static const char digits[] = "0123456789abcdef";
+  char out[2];
+
+  out[0] = digits[(value >> 4) & 0x0FU];
+  out[1] = digits[value & 0x0FU];
+
+  chMtxLock(&sd1_mtx);
+  chnWrite(&SD1, (const uint8_t *)out, sizeof out);
+  chMtxUnlock(&sd1_mtx);
 }
 
 /*
@@ -128,6 +147,9 @@ static THD_FUNCTION(SpiTestThread, arg) {
     sd1_puts("press 's' to run the SPI test\r\n");
     (void) chBSemWait(&spi_trigger_bsem);
 
+    /* The echo of the trigger key sits on the current line.*/
+    sd1_puts("\r\n");
+
     spiStart(&SPID1, &spicfg);
     if (!SPID1.ready) {
       trace_printf("spi: module did not leave reset (clock gated?)\n");
@@ -179,6 +201,9 @@ static THD_FUNCTION(I2cTestThread, arg) {
     sd1_puts("press 'i' to run the I2C bus scan\r\n");
     (void) chBSemWait(&i2c_trigger_bsem);
 
+    /* The echo of the trigger key sits on the current line.*/
+    sd1_puts("\r\nI2C scanning...\r\n");
+
     i2cStart(&I2CD1, &i2ccfg);
     if (!I2CD1.ready) {
       trace_printf("i2c: module did not leave reset (clock gated?)\n");
@@ -199,6 +224,9 @@ static THD_FUNCTION(I2cTestThread, arg) {
 
       if (msg == MSG_OK) {
         trace_printf("i2c: device at %x\n", addr);
+        sd1_puts("  device at 0x");
+        sd1_puthex((uint8_t)addr);
+        sd1_puts("\r\n");
         found++;
       }
       else if (msg == MSG_TIMEOUT) {
@@ -211,7 +239,12 @@ static THD_FUNCTION(I2cTestThread, arg) {
       /* MSG_RESET is the normal NACK of an empty address.*/
     }
     trace_printf("i2c: scan done, %u device(s)\n", found);
-    sd1_puts("I2C scan done\r\n");
+    if (found == 0U) {
+      sd1_puts("I2C scan done, no devices found\r\n");
+    }
+    else {
+      sd1_puts("I2C scan done\r\n");
+    }
   }
 }
 
