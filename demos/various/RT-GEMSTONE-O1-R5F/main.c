@@ -322,8 +322,9 @@ int main(void) {
     chThdSleepMilliseconds(1000);
     main_counter++;
 
-    sd1_puts("SD1 alive from ChibiOS\r\n");
-
+    /* Health beacon goes to trace0 only: the interactive serial console
+       is for typed commands and their echo/results, a message every
+       second there would bury both under a constant flood.*/
 #if CORTEX_USE_FPU == TRUE
     trace_printf("alive: main=%u thread=%u fpu=%u fpu_errors=%u\n",
                  main_counter, thread_counter,
