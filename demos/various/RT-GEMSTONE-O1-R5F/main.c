@@ -22,7 +22,7 @@
  *          40-pin header pins 8/10, 115200 8N1). Characters received on SD1
  *          are echoed back. On the Linux host:
  *
- *          cat /sys/kernel/debug/remoteproc/remoteproc3/trace0
+ *          cat /sys/kernel/debug/remoteproc/remoteproc2/trace0
  */
 
 #include <string.h>

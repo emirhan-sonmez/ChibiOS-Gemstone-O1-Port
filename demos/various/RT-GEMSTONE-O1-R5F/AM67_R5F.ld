@@ -31,11 +31,25 @@ __sys_stack_size__ = DEFINED(__sys_stack_size__) ? __sys_stack_size__ : 0x800;
 
 MEMORY
 {
-    atcm      (rwx) : org = 0x00000000, len = 32k   /* vectors             */
-    btcm      (rwx) : org = 0x41010000, len = 32k   /* banked mode stacks  */
-    ddr_rsc   (rw)  : org = 0xA2100000, len = 4k    /* resource table      */
-    ddr_trace (rw)  : org = 0xA2110000, len = 16k   /* remoteproc trace    */
-    ddr       (rwx) : org = 0xA2240000, len = 14080k /* code, data, heap   */
+    /* The MCU domain core has a single usable TCM, mapped at address 0 by
+       ti,loczrama = <0> (the ATCM lands at 0x41010000 and is left disabled
+       by ti,atcm-enable = <0>). Vectors, the pre-MPU boot code and the
+       banked mode stacks therefore share it.
+
+       It is split into two regions so that the vectors are guaranteed to
+       land at address 0, where the Cortex-R5 fetches its reset vector (it
+       has no VBAR). A single region would not do: the sections below are
+       allocated in script order, so .tcm_probe would take address 0 and
+       push the vectors out of reach.
+
+       The top 64 bytes are left out of both regions, reserved for the boot
+       witness and fault blocks written by board.c and for the temporary
+       boot stack that grows down from there.*/
+    tcm_vec   (rwx) : org = 0x00000000, len = 256
+    tcm       (rwx) : org = 0x00000100, len = 32k - 256 - 64
+    ddr_rsc   (rw)  : org = 0xA1100000, len = 4k    /* resource table      */
+    ddr_trace (rw)  : org = 0xA1110000, len = 16k   /* remoteproc trace    */
+    ddr       (rwx) : org = 0xA1240000, len = 14080k /* code, data, heap   */
 
     /* Unused regions referenced by the generic memory rules.*/
     flash0 (rx) : org = 0x00000000, len = 0
@@ -60,8 +74,8 @@ MEMORY
    and a load region (_LMA suffix).*/
 
 /* Region to be used for exception vectors.*/
-REGION_ALIAS("VECTORS_FLASH", atcm);
-REGION_ALIAS("VECTORS_FLASH_LMA", atcm);
+REGION_ALIAS("VECTORS_FLASH", tcm_vec);
+REGION_ALIAS("VECTORS_FLASH_LMA", tcm_vec);
 
 /* Region to be used for constructors and destructors.*/
 REGION_ALIAS("XTORS_FLASH", ddr);
@@ -83,8 +97,8 @@ REGION_ALIAS("VARIOUS_FLASH_LMA", ddr);
 REGION_ALIAS("RAM_INIT_FLASH_LMA", ddr);
 
 /* RAM region to be used for the banked mode stacks.*/
-REGION_ALIAS("STACKS_RAM", btcm);
-REGION_ALIAS("C1_STACKS_RAM", btcm);
+REGION_ALIAS("STACKS_RAM", tcm);
+REGION_ALIAS("C1_STACKS_RAM", tcm);
 
 /* RAM region to be used for data segment.*/
 REGION_ALIAS("DATA_RAM", ddr);
@@ -109,12 +123,12 @@ SECTIONS
         KEEP(*(.trace))
     } > ddr_trace
 
-    /* Bring-up boot probe, runs from BTCM before any DDR execution, the
+    /* Bring-up boot probe, runs from TCM before any DDR execution, the
        banked mode stacks are allocated after it by rules_stacks.ld.*/
     .tcm_probe : ALIGN(4)
     {
         KEEP(*(.tcm_probe))
-    } > btcm
+    } > tcm
 }
 
 /* Stack rules inclusion.*/

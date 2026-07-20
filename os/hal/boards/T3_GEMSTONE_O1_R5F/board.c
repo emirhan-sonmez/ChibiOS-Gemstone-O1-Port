@@ -111,25 +111,22 @@ static void mpu_init(void) {
   mpu_set_region(0U, 0x00000000U, MPU_SIZE_2G,
                  MPU_STRONGLY_ORDERED | MPU_SHARED | MPU_AP_RWRW);
 
-  /* Region 1: ATCM, normal write-back write-allocate.*/
-  mpu_set_region(1U, AM67_ATCM_BASE, MPU_SIZE_32K,
+  /* Region 1: TCM, normal write-back write-allocate. Only the block at
+     address 0 exists on this core, see board.h.*/
+  mpu_set_region(1U, AM67_TCM_BASE, MPU_SIZE_32K,
                  MPU_NORMAL_WBWA | MPU_AP_RWRW);
 
-  /* Region 2: BTCM, normal write-back write-allocate.*/
-  mpu_set_region(2U, AM67_BTCM_BASE, MPU_SIZE_32K,
+  /* Region 2: MCU MSRAM, normal write-back write-allocate.*/
+  mpu_set_region(2U, AM67_MSRAM_BASE, MPU_SIZE_512K,
                  MPU_NORMAL_WBWA | MPU_AP_RWRW);
 
-  /* Region 3: MCU MSRAM, normal write-back write-allocate.*/
-  mpu_set_region(3U, AM67_MSRAM_BASE, MPU_SIZE_512K,
-                 MPU_NORMAL_WBWA | MPU_AP_RWRW);
-
-  /* Region 4: DDR, normal write-back write-allocate, shareable.*/
-  mpu_set_region(4U, AM67_DDR_BASE, MPU_SIZE_2G,
+  /* Region 3: DDR, normal write-back write-allocate, shareable.*/
+  mpu_set_region(3U, AM67_DDR_BASE, MPU_SIZE_2G,
                  MPU_NORMAL_WBWA | MPU_SHARED | MPU_AP_RWRW);
 
-  /* Region 5: resource table and trace buffer window, non-cacheable so
+  /* Region 4: resource table and trace buffer window, non-cacheable so
      the Linux host sees coherent data, never executable.*/
-  mpu_set_region(5U, AM67_RSCTABLE_BASE, MPU_SIZE_1M,
+  mpu_set_region(4U, AM67_RSCTABLE_BASE, MPU_SIZE_1M,
                  MPU_NORMAL_NONCACHE | MPU_SHARED | MPU_AP_RWRW | MPU_XN);
 
   sctlr_write(sctlr_read() | SCTLR_M);
@@ -164,31 +161,33 @@ void tcm_early_init(void) {
 }
 
 /*
- * Boot entry, placed in BTCM: in the ARMv7-R default memory map (MPU off)
+ * Boot entry, placed in TCM: in the ARMv7-R default memory map (MPU off)
  * DDR is Execute-Never, so everything up to and including the MPU enable
  * must run from TCM. Reset flow:
- *   vectors (ATCM) -> Reset_Handler (BTCM) -> tcm_early_init (BTCM,
- *   enables MPU) -> ddr_reset (DDR) -> _crt0_entry.
+ *   vectors (TCM) -> Reset_Handler (TCM) -> tcm_early_init (TCM, enables
+ *   MPU) -> ddr_reset (DDR) -> _crt0_entry.
  * Witness markers written before any DDR execution:
- *   ATCM+0x7FF0 (host address 0x78407FF0): the core executed the vector
- *   trace+0x3F40 (0xA2113F40): R5F stores to DDR actually land
+ *   TCM+0x7FF0 (host address 0x79027FF0): the core executed the vector
+ *   trace+0x3F40 (0xA1113F40): R5F stores to DDR actually land
+ * The temporary stack starts below the reserved debug block at the top of
+ * the TCM (0x7FC0..0x8000), which the linker script also keeps out of.
  */
 __attribute__((naked, used, section(".tcm_probe")))
 void Reset_Handler(void) {
 
   __asm volatile (
-    "movw    r0, #0x7FF0               \n"  /* ATCM witness              */
+    "movw    r0, #0x7FF0               \n"  /* TCM witness               */
     "movt    r0, #0x0000               \n"
     "movw    r1, #0x0A7C               \n"
     "movt    r1, #0xB007               \n"
     "str     r1, [r0]                  \n"
     "dsb                               \n"
     "movw    r0, #0x3F40               \n"  /* DDR store witness         */
-    "movt    r0, #0xA211               \n"
+    "movt    r0, #0xA111               \n"
     "str     r1, [r0]                  \n"
     "dsb                               \n"
-    "movw    sp, #0x8000               \n"  /* temporary stack, BTCM top */
-    "movt    sp, #0x4101               \n"
+    "movw    sp, #0x7FC0               \n"  /* temporary stack, TCM top  */
+    "movt    sp, #0x0000               \n"
     "bl      tcm_early_init            \n"
     "movw    r0, #:lower16:ddr_reset   \n"
     "movt    r0, #:upper16:ddr_reset   \n"
@@ -203,7 +202,7 @@ void ddr_reset(void) {
 
   __asm volatile (
     "movw    r0, #0x3F0C               \n"
-    "movt    r0, #0xA211               \n"
+    "movt    r0, #0xA111               \n"
     "movw    r1, #0x0004               \n"
     "movt    r1, #0xB007               \n"
     "str     r1, [r0]                  \n"
@@ -224,7 +223,7 @@ void name(void) {                                                           \
     "movt    r1, #0xDEAD               \n"                                  \
     "mrc     p15, 0, r2, " fsr_op "    \n"                                  \
     "mrc     p15, 0, r3, " far_op "    \n"                                  \
-    "movw    r0, #0x7FE0               \n"  /* ATCM fault block */          \
+    "movw    r0, #0x7FE0               \n"  /* TCM fault block */           \
     "movt    r0, #0x0000               \n"                                  \
     "str     r1, [r0]                  \n"                                  \
     "str     lr, [r0, #4]              \n"                                  \
@@ -232,7 +231,7 @@ void name(void) {                                                           \
     "str     r3, [r0, #12]             \n"                                  \
     "dsb                               \n"                                  \
     "movw    r0, #0x3F20               \n"  /* DDR fault block */           \
-    "movt    r0, #0xA211               \n"                                  \
+    "movt    r0, #0xA111               \n"                                  \
     "str     r1, [r0]                  \n"                                  \
     "str     lr, [r0, #4]              \n"                                  \
     "str     r2, [r0, #8]              \n"                                  \

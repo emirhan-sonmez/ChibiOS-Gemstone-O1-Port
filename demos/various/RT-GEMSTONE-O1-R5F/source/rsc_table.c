@@ -61,6 +61,6 @@ const struct am67_resource_table resource_table = {
     .da         = AM67_TRACEBUF_BASE,
     .len        = AM67_TRACEBUF_SIZE,
     .reserved   = 0U,
-    .name       = "trace:r5fss0_0"
+    .name       = "trace:mcu_r5fss0_0"
   }
 };

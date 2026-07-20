@@ -31,37 +31,52 @@
 #define BOARD_NAME              "T3 Gemstone O1 (AM67A/J722S) R5F"
 
 /*
- * Memory map as seen by the R5FSS0 core 0 (WKUP domain).
+ * Memory map as seen by the MCU_R5FSS0 core 0, see
+ * cslr_mcu_r5fss0_baseaddress.h in the TI MCU+ SDK.
+ *
+ * Only one TCM is usable on this core. The Linux device tree gives it
+ * ti,loczrama = <0>, which puts the BTCM at address 0 and the ATCM at
+ * 0x41010000, and then ti,atcm-enable = <0> leaves the ATCM switched off.
+ * Address 0 is not negotiable: Cortex-R5 has no VBAR, so the vectors, the
+ * pre-MPU boot code and the banked mode stacks all share this 32K block.
+ * The Main domain core has the opposite layout (loczrama = 1, both TCMs
+ * enabled), which is why the linker script differs from the Main build.
  */
-#define AM67_ATCM_BASE          0x00000000U
-#define AM67_ATCM_SIZE          (32U * 1024U)
-#define AM67_BTCM_BASE          0x41010000U
-#define AM67_BTCM_SIZE          (32U * 1024U)
+#define AM67_TCM_BASE           0x00000000U
+#define AM67_TCM_SIZE           (32U * 1024U)
 #define AM67_MSRAM_BASE         0x60000000U
 #define AM67_MSRAM_SIZE         (512U * 1024U)
 #define AM67_DDR_BASE           0x80000000U
 
 /*
  * DDR carveout assigned to this core by the Linux device tree, must match
- * the reserved-memory nodes used by the k3-r5 remoteproc driver.
+ * the reserved-memory nodes used by the k3-r5 remoteproc driver. For the
+ * MCU core these are mcu_r5fss0_core0_memory_region@a1100000 (15M), 16M
+ * below the Main core's carveout so both cores can run at the same time.
  */
-#define AM67_RSCTABLE_BASE      0xA2100000U
-#define AM67_TRACEBUF_BASE      0xA2110000U
+#define AM67_RSCTABLE_BASE      0xA1100000U
+#define AM67_TRACEBUF_BASE      0xA1110000U
 #define AM67_TRACEBUF_SIZE      (16U * 1024U)
 
 /*
- * VIM interrupt controller (WKUP_R5FSS0 VIM).
+ * VIM interrupt controller (MCU_R5FSS0 VIC_CFG, in this core's own view).
  */
-#define AM67_VIM_BASE           0x2FFF0000U
+#define AM67_VIM_BASE           0x07FF0000U
 #define AM67_VIM_NUM_IRQS       512U
 
 /*
- * DMTIMER0 used as the OS tick source.
- * Input clock is HFOSC0 at 25 MHz, IRQ number from cslr_intr_r5fss0_core0.h.
+ * MCU_TIMER0 used as the OS tick source, IRQ number from
+ * cslr_intr_mcu_r5fss0_core0.h.
+ *
+ * The device tree leaves this timer's clock mux at its reset default,
+ * unlike main_timer0 which is explicitly reparented, so the 25 MHz below
+ * is the expected HFOSC0 default rather than a verified value. A wrong
+ * parent shows up as a tick rate off by a clean integer ratio, not as a
+ * boot failure, so it is safe to confirm on hardware.
  */
-#define AM67_TIMER0_BASE        0x02400000U
+#define AM67_TIMER0_BASE        0x04800000U
 #define AM67_TIMER0_CLK_HZ      25000000U
-#define AM67_TIMER0_IRQ         24U
+#define AM67_TIMER0_IRQ         28U
 
 #if !defined(_FROM_ASM_)
 #ifdef __cplusplus
