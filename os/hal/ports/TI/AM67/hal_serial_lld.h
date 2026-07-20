@@ -60,6 +60,7 @@
 #define UART_MSR_OFFSET        0x18U  /* Modem Status Register               */
 #define UART_SCR_OFFSET        0x1CU  /* Scratch Pad Register                */
 #define UART_MDR1_OFFSET       0x20U  /* Mode Definition Register 1 (TI)     */
+#define UART_SSR_OFFSET        0x44U  /* Supplementary Status Register (TI)  */
 #define UART_SYSC_OFFSET       0x54U  /* System Configuration Register (TI)  */
 #define UART_SYSS_OFFSET       0x58U  /* System Status Register (TI)         */
 
@@ -121,6 +122,10 @@
 #define UART_LSR_THRE          (1U << 5)  /* TX holding register empty       */
 #define UART_LSR_TEMT          (1U << 6)  /* Transmitter empty (shift reg)   */
 #define UART_LSR_RXFE          (1U << 7)  /* Error in RX FIFO                */
+
+/* SSR Supplementary Status Register (TI extension) *************************/
+
+#define UART_SSR_TXFIFOFULL    (1U << 0)  /* TX FIFO is full                 */
 
 /* MDR1 Mode Definition Register 1 (TI extension) ***************************/
 /* The UART is inert until MDR1 selects an operating mode, regardless of
