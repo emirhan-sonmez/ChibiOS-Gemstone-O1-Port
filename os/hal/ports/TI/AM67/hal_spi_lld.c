@@ -36,28 +36,13 @@
 /* Driver local definitions.                                                 */
 /*===========================================================================*/
 
-/* MCU-domain PADCFG control module: pad registers are write-protected
-   until BOTH lock regions are unlocked, and each lock region has TWO
-   adjacent KICK registers that both must be written (KICK0 at +0x?008,
-   KICK1 at +0x?00C). Writing only one register of a pair leaves the lock
-   closed and pad writes are silently ignored.*/
-#define AM67_PADCFG_CTRL_BASE       0x04080000U
-#define AM67_PADCFG_LOCK0_KICK0     (AM67_PADCFG_CTRL_BASE + 0x1008U)
-#define AM67_PADCFG_LOCK0_KICK1     (AM67_PADCFG_CTRL_BASE + 0x100CU)
-#define AM67_PADCFG_LOCK1_KICK0     (AM67_PADCFG_CTRL_BASE + 0x5008U)
-#define AM67_PADCFG_LOCK1_KICK1     (AM67_PADCFG_CTRL_BASE + 0x500CU)
-#define AM67_KICK0_UNLOCK           0x68EF3490U
-#define AM67_KICK1_UNLOCK           0xD172BC5AU
+#include "am67_padcfg.h"
 
-#define AM67_PADCFG_BASE            (AM67_PADCFG_CTRL_BASE + 0x4000U)
-#define AM67_PAD_SPI0_CS0           (AM67_PADCFG_BASE + 0x0000U)
-#define AM67_PAD_SPI0_CLK           (AM67_PADCFG_BASE + 0x0008U)
-#define AM67_PAD_SPI0_D0            (AM67_PADCFG_BASE + 0x000CU)
-#define AM67_PAD_SPI0_D1            (AM67_PADCFG_BASE + 0x0010U)
-
-#define AM67_PIN_MODE(m)            ((uint32_t)(m))
-#define AM67_PIN_PULL_DISABLE       (1U << 16)
-#define AM67_PIN_INPUT_ENABLE       (1U << 18)
+/* MCU-domain pad offsets for the MCU_SPI0 signals.*/
+#define AM67_PAD_SPI0_CS0           0x0000U
+#define AM67_PAD_SPI0_CLK           0x0008U
+#define AM67_PAD_SPI0_D0            0x000CU
+#define AM67_PAD_SPI0_D1            0x0010U
 
 /* Bound for busy-wait loops on CHSTAT, avoids a silent hard hang if the
    module clock is not running.*/
@@ -87,11 +72,6 @@ static inline void spi_putreg(SPIDriver *spip, uint32_t offset,
   *(volatile uint32_t *)(spip->base + offset) = value;
 }
 
-static inline void reg_write(uint32_t address, uint32_t value) {
-
-  *(volatile uint32_t *)address = value;
-}
-
 /*
  * Routes SPI0 CLK/D0/D1/CS0 pads to the McSPI (mux mode 0). CLK and both
  * data pads get the receiver enabled, D0 input is what makes the
@@ -99,18 +79,15 @@ static inline void reg_write(uint32_t address, uint32_t value) {
  */
 static void spi0_pinmux(void) {
 
-  reg_write(AM67_PADCFG_LOCK0_KICK0, AM67_KICK0_UNLOCK);
-  reg_write(AM67_PADCFG_LOCK0_KICK1, AM67_KICK1_UNLOCK);
-  reg_write(AM67_PADCFG_LOCK1_KICK0, AM67_KICK0_UNLOCK);
-  reg_write(AM67_PADCFG_LOCK1_KICK1, AM67_KICK1_UNLOCK);
+  am67_mcu_padcfg_unlock();
 
-  reg_write(AM67_PAD_SPI0_CLK,
+  am67_mcu_pad_config(AM67_PAD_SPI0_CLK,
             AM67_PIN_MODE(0) | AM67_PIN_INPUT_ENABLE | AM67_PIN_PULL_DISABLE);
-  reg_write(AM67_PAD_SPI0_D0,
+  am67_mcu_pad_config(AM67_PAD_SPI0_D0,
             AM67_PIN_MODE(0) | AM67_PIN_INPUT_ENABLE | AM67_PIN_PULL_DISABLE);
-  reg_write(AM67_PAD_SPI0_D1,
+  am67_mcu_pad_config(AM67_PAD_SPI0_D1,
             AM67_PIN_MODE(0) | AM67_PIN_INPUT_ENABLE | AM67_PIN_PULL_DISABLE);
-  reg_write(AM67_PAD_SPI0_CS0,
+  am67_mcu_pad_config(AM67_PAD_SPI0_CS0,
             AM67_PIN_MODE(0) | AM67_PIN_PULL_DISABLE);
 }
 

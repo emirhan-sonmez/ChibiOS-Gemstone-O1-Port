@@ -61,11 +61,13 @@ static THD_FUNCTION(Thread1, arg) {
 }
 
 /*
- * The SPI test runs on demand: pressing 's' on the serial console
- * signals this semaphore, so the test can be started after the Linux
- * side has been prepared (e.g. its McSPI driver unbound).
+ * The SPI and I2C tests run on demand: pressing 's' or 'i' on the serial
+ * console signals the matching semaphore, so a test can be started after
+ * the Linux side has been prepared (its driver for the shared peripheral
+ * unbound).
  */
 static BSEMAPHORE_DECL(spi_trigger_bsem, true);
+static BSEMAPHORE_DECL(i2c_trigger_bsem, true);
 
 /*
  * UART RX echo thread: any character received on SD1 is sent back. The
@@ -84,6 +86,9 @@ static THD_FUNCTION(EchoThread, arg) {
     if (c >= MSG_OK) {
       if ((char)c == 's') {
         chBSemSignal(&spi_trigger_bsem);
+      }
+      if ((char)c == 'i') {
+        chBSemSignal(&i2c_trigger_bsem);
       }
       chnPutTimeout(&SD1, (uint8_t)c, TIME_INFINITE);
     }
@@ -144,6 +149,69 @@ static THD_FUNCTION(SpiTestThread, arg) {
                    spi_rx[4], spi_rx[5], spi_rx[6], spi_rx[7]);
       sd1_puts("SPI loopback MISMATCH (jumper D0-D1 missing?)\r\n");
     }
+  }
+}
+
+/*
+ * On-demand I2C bus scan (I2CD1 = MCU_I2C0, header pins 3/5): a 1-byte
+ * read is attempted at every 7-bit address, a device that ACKs its
+ * address is reported. With nothing attached every address NACKs, which
+ * still exercises the full START/address/NACK/STOP interrupt path.
+ *
+ * The controller is shared with Linux (4900000.i2c): unbind its driver
+ * before scanning or the two masters fight over the interrupt line:
+ *
+ *   echo 4900000.i2c | sudo tee /sys/bus/platform/drivers/omap_i2c/unbind
+ */
+static THD_WORKING_AREA(waI2cTestThread, 1024);
+static THD_FUNCTION(I2cTestThread, arg) {
+  static const I2CConfig i2ccfg = {
+    .frequency = 100000U    /* Standard mode, 100 kHz.*/
+  };
+
+  (void)arg;
+
+  chRegSetThreadName("i2c-test");
+
+  while (true) {
+    unsigned addr, found;
+
+    sd1_puts("press 'i' to run the I2C bus scan\r\n");
+    (void) chBSemWait(&i2c_trigger_bsem);
+
+    i2cStart(&I2CD1, &i2ccfg);
+    if (!I2CD1.ready) {
+      trace_printf("i2c: module did not leave reset (clock gated?)\n");
+      sd1_puts("I2C module not ready (clock gated?)\r\n");
+      continue;
+    }
+
+    trace_printf("i2c: scanning\n");
+    found = 0U;
+    for (addr = 0x08U; addr <= 0x77U; addr++) {
+      uint8_t dummy;
+      msg_t msg;
+
+      i2cAcquireBus(&I2CD1);
+      msg = i2cMasterReceiveTimeout(&I2CD1, (i2caddr_t)addr, &dummy, 1U,
+                                    TIME_MS2I(50));
+      i2cReleaseBus(&I2CD1);
+
+      if (msg == MSG_OK) {
+        trace_printf("i2c: device at %x\n", addr);
+        found++;
+      }
+      else if (msg == MSG_TIMEOUT) {
+        /* A timeout leaves the driver in I2C_LOCKED, only i2cStart()
+           recovers it, so the scan cannot usefully continue.*/
+        trace_printf("i2c: timeout at %x, aborting scan\n", addr);
+        sd1_puts("I2C scan timed out (Linux driver still bound?)\r\n");
+        break;
+      }
+      /* MSG_RESET is the normal NACK of an empty address.*/
+    }
+    trace_printf("i2c: scan done, %u device(s)\n", found);
+    sd1_puts("I2C scan done\r\n");
   }
 }
 
@@ -219,6 +287,12 @@ int main(void) {
                            sizeof(waSpiTestThread),
                            NORMALPRIO,
                            SpiTestThread,
+                           NULL);
+
+  (void) chThdCreateStatic(waI2cTestThread,
+                           sizeof(waI2cTestThread),
+                           NORMALPRIO,
+                           I2cTestThread,
                            NULL);
 
   trace_printf("kernel started, tick at %u Hz\n",
