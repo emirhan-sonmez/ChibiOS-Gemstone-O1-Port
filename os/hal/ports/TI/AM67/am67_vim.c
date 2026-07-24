@@ -112,6 +112,33 @@ void vim_disable_irq(uint32_t irq) {
   vim_barrier();
 }
 
+/**
+ * @brief   Samples the controller state for one line, for diagnostics.
+ * @details Distinguishes "the peripheral never raised its line" from "the
+ *          VIM latched it but never dispatched it", which look identical
+ *          from a driver that simply timed out.
+ *
+ * @param[in] irq       IRQ line number
+ * @return              bit 0 raw (line asserted), bit 1 status (pending),
+ *                      bit 2 enabled.
+ */
+uint32_t vim_line_state(uint32_t irq) {
+  uint32_t state = 0U;
+
+  chDbgAssert(irq < AM67_VIM_NUM_IRQS, "invalid IRQ number");
+
+  if ((*vim_reg(VIM_GROUP_RAW(irq)) & VIM_BIT(irq)) != 0U) {
+    state |= 1U;
+  }
+  if ((*vim_reg(VIM_GROUP_STS(irq)) & VIM_BIT(irq)) != 0U) {
+    state |= 2U;
+  }
+  if ((*vim_reg(VIM_GROUP_INT_EN(irq)) & VIM_BIT(irq)) != 0U) {
+    state |= 4U;
+  }
+  return state;
+}
+
 /*
  * IRQ dispatcher called by the ARMv7-R port IRQ entry code.
  */

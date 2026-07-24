@@ -39,6 +39,7 @@ extern "C" {
   void vim_set_priority(uint32_t irq, uint32_t priority);
   void vim_enable_irq(uint32_t irq);
   void vim_disable_irq(uint32_t irq);
+  uint32_t vim_line_state(uint32_t irq);
 #ifdef __cplusplus
 }
 #endif

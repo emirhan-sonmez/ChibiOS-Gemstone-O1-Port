@@ -51,6 +51,15 @@
    module clock is gated (i2c_lld_start() runs in a lock zone).*/
 #define I2C_RESET_WAIT_LOOPS        1000000U
 
+/* Bound for the wait that observes the reset actually starting. Short: it
+   is a race guard, not a completion wait, and falling through it is a
+   legitimate outcome (see i2c_hw_init).*/
+#define I2C_RESET_START_LOOPS       10000U
+
+/* Bound for the wait that lets a STOP release a bus left held by a
+   previous transaction.*/
+#define I2C_BUS_FREE_LOOPS          100000U
+
 /*===========================================================================*/
 /* Driver exported variables.                                                */
 /*===========================================================================*/
@@ -104,19 +113,34 @@ static void i2c0_pinmux(void) {
 static void i2c_hw_init(I2CDriver *i2cp) {
   uint32_t psc, d, scll, sclh, i;
 
-  i2cp->ready = false;
+  i2cp->ready      = false;
+  i2cp->init_error = I2C_INIT_OK;
 
-  /* Soft reset, completes only with the module enabled. The wait is
-     bounded: if the functional clock is gated RST_DONE never rises.*/
+  /* Soft reset, completes only with the module enabled.
+
+     RST_DONE still reads 1 for a short while after SRST is asserted, so
+     polling it immediately can fall straight through while the reset has
+     not even started. Everything written afterwards would then be wiped
+     by the reset completing underneath us, leaving an enabled module with
+     zeroed SCL timing: no clock is ever generated, START never completes
+     and every transfer times out. Wait for RST_DONE to drop first, then
+     for it to come back. Falling through the first wait is legitimate (a
+     reset fast enough to miss), the readback below is the real guard.*/
   i2c_putreg(i2cp, I2C_CON_OFFSET, 0U);
   i2c_putreg(i2cp, I2C_SYSC_OFFSET, I2C_SYSC_SRST);
   i2c_putreg(i2cp, I2C_CON_OFFSET, I2C_CON_EN);
+  for (i = 0U; i < I2C_RESET_START_LOOPS; i++) {
+    if ((i2c_getreg(i2cp, I2C_SYSS_OFFSET) & I2C_SYSS_RST_DONE) == 0U) {
+      break;
+    }
+  }
   for (i = 0U; i < I2C_RESET_WAIT_LOOPS; i++) {
     if ((i2c_getreg(i2cp, I2C_SYSS_OFFSET) & I2C_SYSS_RST_DONE) != 0U) {
       break;
     }
   }
   if (i >= I2C_RESET_WAIT_LOOPS) {
+    i2cp->init_error = I2C_INIT_RESET_TIMEOUT;
     return;
   }
 
@@ -132,11 +156,22 @@ static void i2c_hw_init(I2CDriver *i2cp) {
   scll = (d / 2U) - 7U;
   sclh = (d / 2U) - 5U;
   if ((scll < 1U) || (scll > 255U) || (sclh > 255U)) {
-    return;                       /* Unsupported SCL frequency.*/
+    i2cp->init_error = I2C_INIT_BAD_FREQUENCY;
+    return;
   }
   i2c_putreg(i2cp, I2C_PSC_OFFSET, psc);
   i2c_putreg(i2cp, I2C_SCLL_OFFSET, scll);
   i2c_putreg(i2cp, I2C_SCLH_OFFSET, sclh);
+
+  /* Readback guard for the reset race described above: if the reset was
+     still in flight these registers now read back as zero rather than
+     what was just written.*/
+  if ((i2c_getreg(i2cp, I2C_SCLL_OFFSET) != scll) ||
+      (i2c_getreg(i2cp, I2C_SCLH_OFFSET) != sclh) ||
+      (i2c_getreg(i2cp, I2C_PSC_OFFSET) != psc)) {
+    i2cp->init_error = I2C_INIT_TIMING_LOST;
+    return;
+  }
 
   i2c_putreg(i2cp, I2C_CON_OFFSET, I2C_CON_EN);
 
@@ -148,6 +183,31 @@ static void i2c_hw_init(I2CDriver *i2cp) {
   i2c_putreg(i2cp, I2C_IRQENABLE_CLR_OFFSET, I2C_IRQ_ALLMASK);
   i2c_putreg(i2cp, I2C_IRQSTATUS_OFFSET, I2C_IRQ_ALLMASK);
   i2c_putreg(i2cp, I2C_BUF_OFFSET, I2C_BUF_TXFIFO_CLR | I2C_BUF_RXFIFO_CLR);
+
+  /* A soft reset resets this master but not the bus. If the previous
+     transaction ended without a STOP (the NACK path releases the engine
+     but leaves the bus held) the slave is still mid-transfer and BB stays
+     set, so the next START would never be granted. Issue one STOP to
+     release it before declaring the driver ready.*/
+  if ((i2c_getreg(i2cp, I2C_IRQSTATUS_RAW_OFFSET) & I2C_IRQ_BB) != 0U) {
+    i2c_putreg(i2cp, I2C_CON_OFFSET,
+               I2C_CON_EN | I2C_CON_MST | I2C_CON_STP);
+    for (i = 0U; i < I2C_BUS_FREE_LOOPS; i++) {
+      if ((i2c_getreg(i2cp, I2C_IRQSTATUS_RAW_OFFSET) & I2C_IRQ_BB) == 0U) {
+        break;
+      }
+    }
+    i2c_putreg(i2cp, I2C_IRQSTATUS_OFFSET, I2C_IRQ_ALLMASK);
+    i2c_putreg(i2cp, I2C_CON_OFFSET, I2C_CON_EN);
+
+    if ((i2c_getreg(i2cp, I2C_IRQSTATUS_RAW_OFFSET) & I2C_IRQ_BB) != 0U) {
+      /* Still held: a slave is clock stretching or holding SDA and only
+         bit-banged clock pulses would recover it. Report rather than let
+         every later transfer time out with no explanation.*/
+      i2cp->init_error = I2C_INIT_BUS_STUCK;
+      return;
+    }
+  }
 
   i2cp->ready = true;
 }
@@ -317,6 +377,15 @@ static msg_t i2c_run_transfer(I2CDriver *i2cp, sysinterval_t timeout) {
 
   msg = osalThreadSuspendTimeoutS(&i2cp->thread, timeout);
   if (msg == MSG_TIMEOUT) {
+    /* Sample before the abort tears the evidence down. irqen and vim
+       together locate the break: an asserted, enabled peripheral line
+       that the VIM never dispatched is a VIM problem, an unset irqen is
+       a driver problem.*/
+    i2cp->dbg.con   = i2c_getreg(i2cp, I2C_CON_OFFSET);
+    i2cp->dbg.raw   = i2c_getreg(i2cp, I2C_IRQSTATUS_RAW_OFFSET);
+    i2cp->dbg.scll  = i2c_getreg(i2cp, I2C_SCLL_OFFSET);
+    i2cp->dbg.irqen = i2c_getreg(i2cp, I2C_IRQENABLE_SET_OFFSET);
+    i2cp->dbg.vim   = vim_line_state(AM67_MCU_I2C0_IRQ);
     i2c_abort(i2cp);
   }
   return msg;

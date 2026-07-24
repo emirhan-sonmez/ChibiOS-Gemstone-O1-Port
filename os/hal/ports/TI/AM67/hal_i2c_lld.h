@@ -90,6 +90,19 @@
 #define I2C_IRQ_FATALMASK           (I2C_IRQ_AL | I2C_IRQ_NACK | I2C_IRQ_AERR)
 #define I2C_IRQ_ALLMASK             0x7FFFU
 
+/* Controller initialization outcomes ****************************************/
+
+/**
+ * @brief   Why the last i2c_lld_start() failed to bring the module up.
+ * @details A failed initialization used to be silent, which surfaced as
+ *          every later transfer timing out with no explanation.
+ */
+#define I2C_INIT_OK                 0U  /* Module ready                      */
+#define I2C_INIT_RESET_TIMEOUT      1U  /* RST_DONE never rose, clock gated? */
+#define I2C_INIT_TIMING_LOST        2U  /* SCL timing wiped by a late reset  */
+#define I2C_INIT_BAD_FREQUENCY      3U  /* Requested SCL rate unreachable    */
+#define I2C_INIT_BUS_STUCK          4U  /* BB still set after a STOP         */
+
 /* WE (wakeup enable) bits ***************************************************/
 
 #define I2C_WE_ALLMASK              0x6F6FU
@@ -208,6 +221,23 @@ struct hal_i2c_driver {
    * @brief   False when the module failed to come out of reset.
    */
   bool                      ready;
+  /**
+   * @brief   Reason the last initialization failed, one of I2C_INIT_*.
+   */
+  uint32_t                  init_error;
+  /**
+   * @brief   Controller registers sampled when a transfer times out.
+   * @details Bring-up diagnostic: a timeout says nothing about whether
+   *          the clock was configured, the bus was held or the interrupt
+   *          simply never arrived. Strip once the bus is trusted.
+   */
+  struct {
+    uint32_t                con;
+    uint32_t                raw;
+    uint32_t                scll;
+    uint32_t                irqen;
+    uint32_t                vim;
+  }                         dbg;
   /**
    * @brief   Thread waiting for the transfer to end.
    */
