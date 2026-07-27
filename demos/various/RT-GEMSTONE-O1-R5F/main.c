@@ -31,6 +31,7 @@
 #include "hal.h"
 
 #include "trace.h"
+#include "am67_epwm.h"
 
 static volatile uint32_t thread_counter;
 static volatile uint32_t main_counter;
@@ -551,6 +552,39 @@ static THD_FUNCTION(Thread2, arg) {
 #endif
 
 /*
+ * EPWM0_A bring-up (M4). Drives EHRPWM0_A on the 40-pin header (pin 29,
+ * GPIO5 pad muxed by the Linux DT overlay) at a 50 Hz servo/ESC frame,
+ * stepping the pulse width through 1000/1500/2000 us every 3 s so the
+ * waveform can be checked on a scope. SCOPE ONLY -- do NOT connect an ESC
+ * or motor until AM67_EPWM0_CLK_HZ has been calibrated against the measured
+ * period, because the 100 MHz clock is still provisional.
+ */
+static THD_WORKING_AREA(waPwmThread, 256);
+static THD_FUNCTION(PwmThread, arg) {
+  static const uint32_t pulses_us[] = { 1000U, 1500U, 2000U };
+  unsigned i = 0U;
+
+  (void)arg;
+  chRegSetThreadName("pwm");
+
+  epwm0a_init();          /* Pin forced LOW until the frame is started. */
+  epwm0a_start(50U);      /* 50 Hz -> 20000 us frame. */
+
+  /* Clocking self-check: TBPRD must read back as the programmed period
+     (62500 at the provisional 100 MHz). A 0 here means EPWM0 is not clocked
+     by the Linux host -> fix the DT/clock arrangement before scoping. */
+  trace_printf("pwm: EPWM0 TBPRD readback=%u (expect 62500 if clocked)\n",
+               (uint32_t)epwm0a_read_tbprd());
+
+  while (true) {
+    epwm0a_set_pulse_us(pulses_us[i]);
+    trace_printf("pwm: EPWM0_A frame=20000us pulse=%u us\n", pulses_us[i]);
+    chThdSleepMilliseconds(3000);
+    i = (i + 1U) % 3U;
+  }
+}
+
+/*
  * Application entry point.
  */
 int main(void) {
@@ -614,6 +648,12 @@ int main(void) {
                            sizeof(waEchoThread),
                            NORMALPRIO,
                            EchoThread,
+                           NULL);
+
+  (void) chThdCreateStatic(waPwmThread,
+                           sizeof(waPwmThread),
+                           NORMALPRIO,
+                           PwmThread,
                            NULL);
 
 #if CORTEX_USE_FPU == TRUE

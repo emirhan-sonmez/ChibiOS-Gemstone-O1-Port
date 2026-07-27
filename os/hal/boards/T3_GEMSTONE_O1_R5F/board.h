@@ -78,6 +78,21 @@
 #define AM67_TIMER0_CLK_HZ      25000000U
 #define AM67_TIMER0_IRQ         28U
 
+/*
+ * EPWM0 (eHRPWM), first PWM output on EHRPWM0_A -> Gemstone 40-pin header
+ * pin 29 (GPIO5 pad, muxed to EHRPWM0_A by the Linux DT overlay
+ * k3-am67a-t3-gem-o1-pwm-epwm0-gpio5.dtbo). The DT owns pinmux + the module
+ * clock/power; the firmware only drives EPWM registers.
+ *
+ * AM67_EPWM0_CLK_HZ is the EPWM time-base input clock (fed from epwm_tbclk in
+ * the device tree). The numeric rate is NOT yet verified on this board --
+ * 100 MHz is provisional. A wrong value shows up as the measured period and
+ * pulse widths being off by a clean ratio, not as a failure, so confirm on
+ * the scope and adjust THIS ONE CONSTANT.
+ */
+#define AM67_EPWM0_BASE         0x23000000U
+#define AM67_EPWM0_CLK_HZ       100000000U   /* UNVERIFIED provisional. */
+
 #if !defined(_FROM_ASM_)
 #ifdef __cplusplus
 extern "C" {
