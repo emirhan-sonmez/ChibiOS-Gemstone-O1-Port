@@ -52,6 +52,21 @@ extern "C" {
      must equal the programmed period; a 0 (or a bus fault) means EPWM0 is not
      clocked and the DT/clock arrangement is wrong. */
   uint16_t epwm0a_read_tbprd(void);
+
+  /* Read the time-base counter (TBCTR). The counter only advances when the
+     Linux-owned epwm_tbclk gate is enabled (a PWM channel is enabled from user
+     space). Sampling TBCTR twice with a delay and seeing it change is how the
+     R5F detects the time base is actually running before taking over. NOTE:
+     requires the EPWM0 module clock (fck) to be on, otherwise the register read
+     may fault -- keep it active from Linux (power/control = on). */
+  uint16_t epwm0a_read_tbctr(void);
+
+  /* Raw register readbacks for bring-up debugging (TBCTL/AQCTLA/AQCSFRC/CMPA;
+     TBPRD and TBCTR above). */
+  uint16_t epwm0a_read_tbctl(void);
+  uint16_t epwm0a_read_aqctla(void);
+  uint16_t epwm0a_read_aqcsfrc(void);
+  uint16_t epwm0a_read_cmpa(void);
 #ifdef __cplusplus
 }
 #endif

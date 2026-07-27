@@ -84,14 +84,15 @@
  * k3-am67a-t3-gem-o1-pwm-epwm0-gpio5.dtbo). The DT owns pinmux + the module
  * clock/power; the firmware only drives EPWM registers.
  *
- * AM67_EPWM0_CLK_HZ is the EPWM time-base input clock (fed from epwm_tbclk in
- * the device tree). The numeric rate is NOT yet verified on this board --
- * 100 MHz is provisional. A wrong value shows up as the measured period and
- * pulse widths being off by a clean ratio, not as a failure, so confirm on
- * the scope and adjust THIS ONE CONSTANT.
+ * AM67_EPWM0_CLK_HZ is the EPWM counter input clock (SYSCLKOUT), i.e. the
+ * clock BEFORE the TBCTL HSPCLKDIV/CLKDIV prescale. It is the module "fck":
+ * confirmed 250 MHz on this board via /sys/kernel/debug/clk/clk_summary and
+ * the Linux pwm-tiehrpwm driver (it derives period/duty from clk_get_rate of
+ * "fck"). The separate epwm_tbclk gate must be enabled for the counter to
+ * run but is NOT a divider. Final confirmation pending scope measurement.
  */
 #define AM67_EPWM0_BASE         0x23000000U
-#define AM67_EPWM0_CLK_HZ       100000000U   /* UNVERIFIED provisional. */
+#define AM67_EPWM0_CLK_HZ       250000000U   /* fck = SYSCLKOUT, pre-prescale. */
 
 #if !defined(_FROM_ASM_)
 #ifdef __cplusplus

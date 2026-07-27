@@ -559,25 +559,69 @@ static THD_FUNCTION(Thread2, arg) {
  * or motor until AM67_EPWM0_CLK_HZ has been calibrated against the measured
  * period, because the 100 MHz clock is still provisional.
  */
+static void pwm_dump_regs(const char *when) {
+  trace_printf("pwm: [%s] TBCTL=%x TBCTR=%u AQCTLA=%x AQCSFRC=%x TBPRD=%u CMPA=%u\n",
+               when,
+               (uint32_t)epwm0a_read_tbctl(),
+               (uint32_t)epwm0a_read_tbctr(),
+               (uint32_t)epwm0a_read_aqctla(),
+               (uint32_t)epwm0a_read_aqcsfrc(),
+               (uint32_t)epwm0a_read_tbprd(),
+               (uint32_t)epwm0a_read_cmpa());
+}
+
 static THD_WORKING_AREA(waPwmThread, 256);
 static THD_FUNCTION(PwmThread, arg) {
   static const uint32_t pulses_us[] = { 1000U, 1500U, 2000U };
   unsigned i = 0U;
+  uint16_t a, b;
 
   (void)arg;
   chRegSetThreadName("pwm");
 
-  epwm0a_init();          /* Pin forced LOW until the frame is started. */
-  epwm0a_start(50U);      /* 50 Hz -> 20000 us frame. */
+  /*
+   * Do NOT touch EPWM0 at boot. The epwm_tbclk gate is owned by Linux and is
+   * only enabled when a PWM channel is enabled from user space; until then the
+   * time-base counter is frozen. Wait until it is actually running by sampling
+   * TBCTR twice and detecting that it advances, THEN take over the registers.
+   *
+   * Prerequisite: the EPWM0 module clock (fck) must be on for these reads to be
+   * safe -- keep it active from Linux with
+   *   echo on > /sys/bus/platform/devices/23000000.pwm/power/control
+   * and enable a channel (which turns the tbclk gate on and retains it).
+   */
+  chThdSleepMilliseconds(1000);   /* let Linux finish probing EPWM0 first */
+  trace_printf("pwm: waiting for EPWM0 time base (enable a Linux pwm channel)\n");
 
-  /* Clocking self-check: TBPRD must read back as the programmed period
-     (62500 at the provisional 100 MHz). A 0 here means EPWM0 is not clocked
-     by the Linux host -> fix the DT/clock arrangement before scoping. */
-  trace_printf("pwm: EPWM0 TBPRD readback=%u (expect 62500 if clocked)\n",
-               (uint32_t)epwm0a_read_tbprd());
+  for (;;) {
+    a = epwm0a_read_tbctr();
+    chThdSleepMilliseconds(5);    /* 5 ms << 20 ms frame: counter moves a lot */
+    b = epwm0a_read_tbctr();
+    if (a != b) {
+      break;                      /* TBCTR advancing -> tbclk gate is running */
+    }
+    trace_printf("pwm: TBCTR frozen (a=%u b=%u), tbclk not enabled yet\n",
+                 (uint32_t)a, (uint32_t)b);
+    chThdSleepMilliseconds(500);
+  }
+  trace_printf("pwm: TBCTR advancing (a=%u b=%u) -> R5F taking over EPWM0\n",
+               (uint32_t)a, (uint32_t)b);
+
+  /* Register state as Linux left it (before we program anything). */
+  pwm_dump_regs("before start");
+
+  /* Take over the time base: our prescale/period/action-qualifier, 0% duty
+     first (rest low), then cycle the pulse widths. The tbclk gate stays on
+     because Linux keeps its channel enabled. */
+  epwm0a_start(50U);              /* 50 Hz -> 20000 us frame. */
+
+  /* Register state after our programming. Expect TBCTL=e80, AQCTLA=12,
+     AQCSFRC=0 (force released), TBPRD=62500. */
+  pwm_dump_regs("after start");
 
   while (true) {
     epwm0a_set_pulse_us(pulses_us[i]);
+    pwm_dump_regs("after set_pulse");
     trace_printf("pwm: EPWM0_A frame=20000us pulse=%u us\n", pulses_us[i]);
     chThdSleepMilliseconds(3000);
     i = (i + 1U) % 3U;
