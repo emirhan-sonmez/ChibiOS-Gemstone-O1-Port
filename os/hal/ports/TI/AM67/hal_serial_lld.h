@@ -222,6 +222,49 @@ extern "C" {
   void sd_lld_start(SerialDriver *sdp, const SerialConfig *config);
   void sd_lld_stop(SerialDriver *sdp);
   void sd_lld_serve_interrupt(SerialDriver *sdp);
+
+  /*
+    Bounded low-level TX-path diagnostics for UART1/SD1 (GemstoneO1R5F
+    bring-up, tracking down the "bytes accepted into the queue but never
+    reach the wire" fault). ISR-safe: incremented/snapshotted as plain
+    volatile counters inside notify1()/sd_lld_serve_interrupt()/
+    load_tx_fifo(), never via trace_printf from interrupt context. Read and
+    printed from normal thread context after boot.
+  */
+  extern volatile uint32_t am67_uart1_notify_count;      /* notify1() calls */
+  extern volatile uint32_t am67_uart1_ier_after_notify;   /* IER readback right after notify1 sets ETBEI */
+  extern volatile uint32_t am67_uart1_isr_count;          /* sd_lld_serve_interrupt() entries (ISR fired) */
+  extern volatile uint32_t am67_uart1_thre_count;         /* IIR THRE branch entries */
+  extern volatile uint32_t am67_uart1_lsr_at_thre;        /* LSR snapshot at the THRE branch */
+  extern volatile uint32_t am67_uart1_load_fifo_count;    /* load_tx_fifo() calls */
+  extern volatile uint32_t am67_uart1_bytes_dequeued;     /* bytes pulled from the oqueue */
+  extern volatile uint32_t am67_uart1_thr_writes;         /* THR register writes */
+  extern volatile uint32_t am67_uart1_iir_last;           /* last IIR value seen in the ISR loop */
+
+  /*
+    One-shot polled TX test: bypasses the output queue and the TX interrupt
+    entirely, waiting on LSR THRE and writing THR directly per byte. Proves
+    (or disproves) the physical TX path -- base address, pinmux, baud
+    divisor, MDR1 mode -- independent of notify1()/ETBEI/ISR. Returns the
+    number of bytes actually written (< len only if a THRE wait timed out).
+    Temporary GemstoneO1R5F bring-up diagnostic, NOT the production TX path.
+  */
+  uint32_t am67_uart1_poll_tx(const uint8_t *data, uint32_t len);
+
+  /*
+    Push any bytes sitting in the SD1 software output queue into the UART
+    TX FIFO, and report how many bytes remain queued afterwards.
+
+    Needed because the THR-empty (THRE) interrupt is not currently observed
+    to fire on this UART (am67_uart1_thre_count stays 0): the only thing
+    that moves bytes queue -> FIFO is notify1(), which runs on a write. So
+    once a burst overflows the FIFO, the leftover bytes can only drain if
+    something else pumps them -- otherwise the queue stays full, txspace()
+    reads 0, the writer stops writing, and no further notify1() ever
+    happens. Call this periodically (e.g. once per main loop) so the TX
+    path makes progress independently of new writes.
+  */
+  uint32_t am67_uart1_tx_pump(void);
 #ifdef __cplusplus
 }
 #endif

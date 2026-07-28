@@ -41,6 +41,18 @@
 SerialDriver SD1;
 #endif
 
+/* Bounded low-level TX diagnostics (GemstoneO1R5F bring-up). See the
+   declarations in hal_serial_lld.h for what each counter means. */
+volatile uint32_t am67_uart1_notify_count;
+volatile uint32_t am67_uart1_ier_after_notify;
+volatile uint32_t am67_uart1_isr_count;
+volatile uint32_t am67_uart1_thre_count;
+volatile uint32_t am67_uart1_lsr_at_thre;
+volatile uint32_t am67_uart1_load_fifo_count;
+volatile uint32_t am67_uart1_bytes_dequeued;
+volatile uint32_t am67_uart1_thr_writes;
+volatile uint32_t am67_uart1_iir_last;
+
 /*===========================================================================*/
 /* Driver local variables and types.                                         */
 /*===========================================================================*/
@@ -158,6 +170,8 @@ static void set_error(SerialDriver *sdp, uint32_t lsr) {
 static void load_tx_fifo(SerialDriver *sdp) {
   uint32_t n;
 
+  am67_uart1_load_fifo_count++;
+
   for (n = 0U; n < UART_TX_FIFO_DEPTH; n++) {
     msg_t b;
 
@@ -170,7 +184,9 @@ static void load_tx_fifo(SerialDriver *sdp) {
                u_getreg(sdp, UART_IER_OFFSET) & ~UART_IER_ETBEI);
       break;
     }
+    am67_uart1_bytes_dequeued++;
     u_putreg(sdp, UART_THR_OFFSET, (uint32_t)b);
+    am67_uart1_thr_writes++;
   }
 }
 
@@ -179,8 +195,11 @@ static void notify1(io_queue_t *qp) {
 
   (void)qp;
 
+  am67_uart1_notify_count++;
+
   u_putreg(&SD1, UART_IER_OFFSET,
            u_getreg(&SD1, UART_IER_OFFSET) | UART_IER_ETBEI);
+  am67_uart1_ier_after_notify = u_getreg(&SD1, UART_IER_OFFSET);
 
   /* The THR empty interrupt fires on a level transition only: when the
      transmitter is already idle there is no transition and nothing would
@@ -227,8 +246,12 @@ static bool uart1_irq_handler(void *arg) {
 void sd_lld_serve_interrupt(SerialDriver *sdp) {
   uint32_t iir;
 
+  am67_uart1_isr_count++;
+
   while (((iir = u_getreg(sdp, UART_IIR_OFFSET)) &
           UART_IIR_INTSTATUS) == 0U) {
+
+    am67_uart1_iir_last = iir;
 
     switch (iir & UART_IIR_INTID_MASK) {
     case UART_IIR_INTID_RLS:
@@ -251,6 +274,8 @@ void sd_lld_serve_interrupt(SerialDriver *sdp) {
     case UART_IIR_INTID_THRE:
       /* TX holding register empty: refill up to a FIFO worth of data,
          disable the TX interrupt when the output queue runs dry.*/
+      am67_uart1_thre_count++;
+      am67_uart1_lsr_at_thre = u_getreg(sdp, UART_LSR_OFFSET);
       osalSysLockFromISR();
       load_tx_fifo(sdp);
       osalSysUnlockFromISR();
@@ -325,6 +350,62 @@ void sd_lld_stop(SerialDriver *sdp) {
 #endif
     uart_deinit(sdp);
   }
+}
+
+/**
+ * @brief   One-shot polled TX test for UART1 (GemstoneO1R5F bring-up).
+ * @details Bypasses the output queue and the TX interrupt entirely: waits
+ *          on LSR THRE and writes THR directly, per byte. Isolates the
+ *          physical TX path (base address, pinmux, baud divisor, MDR1
+ *          mode) from the notify1()/ETBEI/ISR-driven path. Bounded wait per
+ *          byte so a stuck THRE cannot hang the caller forever.
+ *
+ *          Temporary diagnostic. Not the production TX path -- normal
+ *          traffic keeps using the interrupt-driven queue via sdWrite().
+ *
+ * @param[in] data      bytes to send
+ * @param[in] len       number of bytes
+ * @return              number of bytes actually written; < len only if a
+ *                       THRE wait timed out (transmitter never went idle).
+ *
+ * @notapi
+ */
+uint32_t am67_uart1_poll_tx(const uint8_t *data, uint32_t len) {
+  uint32_t i;
+
+  for (i = 0U; i < len; i++) {
+    uint32_t tries = 0U;
+
+    while ((u_getreg(&SD1, UART_LSR_OFFSET) & UART_LSR_THRE) == 0U) {
+      if (++tries > 1000000U) {
+        return i;
+      }
+    }
+    u_putreg(&SD1, UART_THR_OFFSET, (uint32_t)data[i]);
+  }
+  return len;
+}
+
+/**
+ * @brief   Drain queued TX bytes into the UART FIFO.
+ * @details See the comment on the declaration in hal_serial_lld.h. Safe to
+ *          call at any time; does nothing when the output queue is empty.
+ *
+ * @return  number of bytes still queued after pumping.
+ *
+ * @notapi
+ */
+uint32_t am67_uart1_tx_pump(void) {
+  size_t remaining;
+
+  osalSysLock();
+  if (oqGetFullI(&SD1.oqueue) > (size_t)0) {
+    load_tx_fifo(&SD1);
+  }
+  remaining = oqGetFullI(&SD1.oqueue);
+  osalSysUnlock();
+
+  return (uint32_t)remaining;
 }
 
 #endif /* HAL_USE_SERIAL == TRUE */
