@@ -16,17 +16,14 @@
 
 /**
  * @file    TI/AM67/am67_epwm.c
- * @brief   Minimal single-channel EPWM0 output (EHRPWM0_A) for the AM67/J722S.
- * @details Register map is the CLASSIC eHRPWM (ti,am3352-ehrpwm) layout, which
- *          is what the J722S EPWM instances use. Offsets confirmed against the
- *          J722S register spreadsheet (62_EPWM0) and the Linux pwm-tiehrpwm
- *          driver. All EPWM registers are 16-bit (readw/writew); CMPA is a
- *          single 16-bit compare at 0x12 (no high-res split for basic PWM).
- *
- *          Up-count PWM: the A output is set HIGH at counter zero and cleared
- *          LOW when the counter reaches CMPA, so pulse width = CMPA / TBCLK
- *          and the frame period = TBPRD / TBCLK, with
- *          TBCLK = EPWMCLK / (CLKDIV * HSPCLKDIV).
+ * @brief   Minimal eHRPWM output driver for the AM67/J722S.
+ * @details Classic eHRPWM (ti,am3352-ehrpwm) 16-bit register map, confirmed
+ *          against the J722S register spreadsheet (62_EPWM0) and the Linux
+ *          pwm-tiehrpwm driver (readw/writew). Up-count PWM: an output is set
+ *          HIGH at counter zero and cleared LOW at its compare, so the high
+ *          time = CMPx / TBCLK and the frame period = TBPRD / TBCLK, with
+ *          TBCLK = fck / (CLKDIV * HSPCLKDIV). Outputs A and B of one instance
+ *          share the time base but use CMPA/CMPB independently.
  */
 
 #include "hal.h"
@@ -36,18 +33,14 @@
 /* eHRPWM register offsets (16-bit registers).                               */
 /*===========================================================================*/
 
-/* CLASSIC eHRPWM (ti,am3352-ehrpwm) register map -- this is the J722S EPWM
-   layout, confirmed against the J722S register spreadsheet (62_EPWM0) AND the
-   Linux pwm-tiehrpwm driver (which drives this same instance). All registers
-   are 16-bit (readw/writew). The earlier "ETPWM v1" offsets (0xC6/0xD4/0x80)
-   were WRONG for this SoC -- only TBCTL/TBCTR happened to coincide, which is
-   why TBCTR advanced but TBPRD read back 0. */
 #define EPWM_TBCTL              0x00U  /* Time-base control.                  */
 #define EPWM_TBCTR              0x08U  /* Time-base counter.                  */
-#define EPWM_TBPRD              0x0AU  /* Time-base period (16-bit).          */
+#define EPWM_TBPRD              0x0AU  /* Time-base period.                   */
 #define EPWM_CMPCTL             0x0EU  /* Compare control (reset = shadow).   */
-#define EPWM_CMPA               0x12U  /* Counter-compare A (16-bit, 15:0).   */
+#define EPWM_CMPA               0x12U  /* Counter-compare A (15:0).           */
+#define EPWM_CMPB               0x14U  /* Counter-compare B (15:0).           */
 #define EPWM_AQCTLA             0x16U  /* Action qualifier, output A.         */
+#define EPWM_AQCTLB             0x18U  /* Action qualifier, output B.         */
 #define EPWM_AQCSFRC            0x1CU  /* Continuous software force.          */
 
 /* TBCTL fields. */
@@ -57,104 +50,140 @@
 #define TBCTL_CLKDIV_DIV8       (3U << 10)  /* Prescale /8 (2^3, 0b011).      */
 
 /* Fixed prescale = HSPCLKDIV(/10) * CLKDIV(/8) = 80. Sized for the confirmed
-   250 MHz EPWM input clock (fck) so a 50 Hz frame fits the 16-bit TBPRD:
-   250e6 / 80 / 50 = 62500 <= 65535. TBCLK_eff = 250e6/80 = 3.125 MHz
-   (0.32 us resolution). If AM67_EPWM0_CLK_HZ changes, revisit this so TBPRD
-   stays <= 65535. */
+   250 MHz fck so a 50 Hz frame fits the 16-bit TBPRD: 250e6/80/50 = 62500. */
 #define EPWM_PRESCALE           80U
 #define TBCTL_PRESCALE          (TBCTL_HSPCLKDIV_DIV10 | TBCTL_CLKDIV_DIV8)
 
-/* Action qualifier for output A, up-count PWM: set HIGH at ZERO (bits[1:0]=2),
-   clear LOW on the up-count CMPA match (bits[5:4]=1). Value = 0x0012. */
-#define AQ_ZRO_SET              (2U << 0)
-#define AQ_CAU_CLEAR            (1U << 4)
-#define AQCTLA_UP_PWM           (AQ_ZRO_SET | AQ_CAU_CLEAR)
+/* Action qualifier value for up-count PWM on output A: set HIGH at ZERO
+   (ZRO[1:0]=2), clear LOW on the up-count CMPA match (CAU[5:4]=1) -> 0x0012. */
+#define AQCTLA_UP_PWM           ((2U << 0) | (1U << 4))
 
-/* Continuous software force on output A (AQCSFRC.CSFA[1:0]). */
-#define AQCSFRC_CSFA_NONE       (0U << 0)   /* Normal action-qualifier drive. */
-#define AQCSFRC_CSFA_LOW        (1U << 0)   /* Force output continuously LOW. */
+/* Same for output B: set HIGH at ZERO (ZRO[1:0]=2), clear LOW on the up-count
+   CMPB match (CBU[9:8]=1) -> 0x0102. */
+#define AQCTLB_UP_PWM           ((2U << 0) | (1U << 8))
 
-/* Effective time-base clock after the fixed prescale. */
-#define EPWM0_TBCLK_HZ          (AM67_EPWM0_CLK_HZ / EPWM_PRESCALE)
+/* AQCSFRC continuous software force fields: CSFA[1:0], CSFB[3:2]. */
+#define AQCSFRC_CSFA_MASK       0x0003U
+#define AQCSFRC_CSFA_LOW        0x0001U
+#define AQCSFRC_CSFB_MASK       0x000CU
+#define AQCSFRC_CSFB_LOW        0x0004U
+
+/* Effective time-base clock after the fixed prescale (same for all EPWM
+   instances -- they share the 250 MHz PWMSS fck). */
+#define EPWM_TBCLK_HZ           (AM67_EPWM0_CLK_HZ / EPWM_PRESCALE)
 
 /*===========================================================================*/
-/* Local helpers.                                                            */
+/* Local helpers (base-address parameterised).                               */
 /*===========================================================================*/
 
-static inline void epwm_wr16(uint32_t offset, uint16_t value) {
+static inline void epwm_wr16(uint32_t base, uint32_t off, uint16_t v) {
 
-  *(volatile uint16_t *)(AM67_EPWM0_BASE + offset) = value;
+  *(volatile uint16_t *)(base + off) = v;
 }
 
-static inline uint16_t epwm_rd16(uint32_t offset) {
+static inline uint16_t epwm_rd16(uint32_t base, uint32_t off) {
 
-  return *(volatile uint16_t *)(AM67_EPWM0_BASE + offset);
+  return *(volatile uint16_t *)(base + off);
 }
 
-/* Cached period so set_pulse can clamp the high-time to one frame. */
-static uint16_t epwm0_period_ticks;
+static uint16_t epwm_tbprd_for(uint32_t frame_hz) {
+  uint32_t prd = (frame_hz != 0U) ? (EPWM_TBCLK_HZ / frame_hz) : 0xFFFFU;
+
+  if (prd > 0xFFFFU) {
+    prd = 0xFFFFU;
+  }
+  return (uint16_t)prd;
+}
 
 /*===========================================================================*/
-/* Driver exported functions.                                                */
+/* Generic eHRPWM API.                                                       */
+/*===========================================================================*/
+
+void ehrpwm_start(uint32_t base, uint32_t frame_hz) {
+
+  epwm_wr16(base, EPWM_TBPRD, epwm_tbprd_for(frame_hz));
+  epwm_wr16(base, EPWM_TBCTR, 0U);
+  epwm_wr16(base, EPWM_TBCTL, TBCTL_CTRMODE_UP | TBCTL_PRESCALE);
+}
+
+void ehrpwm_out_enable(uint32_t base, bool output_b) {
+  uint16_t force = epwm_rd16(base, EPWM_AQCSFRC);
+
+  if (!output_b) {
+    epwm_wr16(base, EPWM_CMPA, 0U);
+    epwm_wr16(base, EPWM_AQCTLA, AQCTLA_UP_PWM);
+    epwm_wr16(base, EPWM_AQCSFRC, force & ~AQCSFRC_CSFA_MASK);  /* release A */
+  }
+  else {
+    epwm_wr16(base, EPWM_CMPB, 0U);
+    epwm_wr16(base, EPWM_AQCTLB, AQCTLB_UP_PWM);
+    epwm_wr16(base, EPWM_AQCSFRC, force & ~AQCSFRC_CSFB_MASK);  /* release B */
+  }
+}
+
+void ehrpwm_out_set_pulse_us(uint32_t base, bool output_b, uint32_t pulse_us) {
+  uint32_t cmp = (uint32_t)(((uint64_t)pulse_us * EPWM_TBCLK_HZ) / 1000000ULL);
+  uint16_t prd = epwm_rd16(base, EPWM_TBPRD);
+
+  if (cmp > prd) {
+    cmp = prd;
+  }
+  epwm_wr16(base, output_b ? EPWM_CMPB : EPWM_CMPA, (uint16_t)cmp);
+}
+
+void ehrpwm_out_low(uint32_t base, bool output_b) {
+  uint16_t force = epwm_rd16(base, EPWM_AQCSFRC);
+
+  if (!output_b) {
+    force = (force & ~AQCSFRC_CSFA_MASK) | AQCSFRC_CSFA_LOW;
+  }
+  else {
+    force = (force & ~AQCSFRC_CSFB_MASK) | AQCSFRC_CSFB_LOW;
+  }
+  epwm_wr16(base, EPWM_AQCSFRC, force);
+}
+
+uint16_t ehrpwm_read_tbctr(uint32_t base) { return epwm_rd16(base, EPWM_TBCTR); }
+uint16_t ehrpwm_read_tbprd(uint32_t base) { return epwm_rd16(base, EPWM_TBPRD); }
+uint16_t ehrpwm_read_cmp(uint32_t base, bool output_b) {
+
+  return epwm_rd16(base, output_b ? EPWM_CMPB : EPWM_CMPA);
+}
+
+/*===========================================================================*/
+/* EPWM0 output-A convenience wrappers (bring-up demo).                      */
 /*===========================================================================*/
 
 void epwm0a_init(void) {
 
-  /* Safe default: drive the pin continuously LOW and freeze the counter, so
-     nothing is produced on the header pin until epwm0a_start(). */
-  epwm_wr16(EPWM_AQCSFRC, AQCSFRC_CSFA_LOW);
-  epwm_wr16(EPWM_TBCTL, TBCTL_CTRMODE_STOP | TBCTL_PRESCALE);
-  epwm_wr16(EPWM_TBPRD, 0U);
-  epwm_wr16(EPWM_CMPA, 0U);
-  epwm_wr16(EPWM_AQCTLA, AQCTLA_UP_PWM);
-  epwm0_period_ticks = 0U;
+  /* Safe default: force the pin LOW and freeze the counter. */
+  ehrpwm_out_low(AM67_EPWM0_BASE, false);
+  epwm_wr16(AM67_EPWM0_BASE, EPWM_TBCTL, TBCTL_CTRMODE_STOP | TBCTL_PRESCALE);
+  epwm_wr16(AM67_EPWM0_BASE, EPWM_TBPRD, 0U);
+  epwm_wr16(AM67_EPWM0_BASE, EPWM_CMPA, 0U);
+  epwm_wr16(AM67_EPWM0_BASE, EPWM_AQCTLA, AQCTLA_UP_PWM);
 }
 
 void epwm0a_start(uint32_t frame_hz) {
-  uint32_t prd;
 
-  prd = EPWM0_TBCLK_HZ / frame_hz;
-  if (prd > 0xFFFFU) {
-    prd = 0xFFFFU;                 /* Prescale should prevent this; clamp.   */
-  }
-  epwm0_period_ticks = (uint16_t)prd;
-
-  epwm_wr16(EPWM_TBPRD, epwm0_period_ticks);
-  epwm_wr16(EPWM_CMPA, 0U);    /* 0% duty: pin rests LOW until a pulse.  */
-  epwm_wr16(EPWM_TBCTR, 0U);
-  epwm_wr16(EPWM_AQCTLA, AQCTLA_UP_PWM);
-  epwm_wr16(EPWM_AQCSFRC, AQCSFRC_CSFA_NONE);   /* Release the force.        */
-  epwm_wr16(EPWM_TBCTL, TBCTL_CTRMODE_UP | TBCTL_PRESCALE);
+  ehrpwm_start(AM67_EPWM0_BASE, frame_hz);
+  ehrpwm_out_enable(AM67_EPWM0_BASE, false);
 }
 
 void epwm0a_set_pulse_us(uint32_t pulse_us) {
-  uint32_t cmp;
 
-  cmp = (uint32_t)(((uint64_t)pulse_us * EPWM0_TBCLK_HZ) / 1000000ULL);
-  if (cmp > epwm0_period_ticks) {
-    cmp = epwm0_period_ticks;      /* Never exceed one frame (100% cap).     */
-  }
-  epwm_wr16(EPWM_CMPA, (uint16_t)cmp);
+  ehrpwm_out_set_pulse_us(AM67_EPWM0_BASE, false, pulse_us);
 }
 
 void epwm0a_stop(void) {
 
-  epwm_wr16(EPWM_AQCSFRC, AQCSFRC_CSFA_LOW);    /* Force pin LOW.            */
-  epwm_wr16(EPWM_TBCTL, TBCTL_CTRMODE_STOP | TBCTL_PRESCALE);
+  ehrpwm_out_low(AM67_EPWM0_BASE, false);
+  epwm_wr16(AM67_EPWM0_BASE, EPWM_TBCTL, TBCTL_CTRMODE_STOP | TBCTL_PRESCALE);
 }
 
-uint16_t epwm0a_read_tbprd(void) {
-
-  return epwm_rd16(EPWM_TBPRD);
-}
-
-uint16_t epwm0a_read_tbctr(void) {
-
-  return epwm_rd16(EPWM_TBCTR);
-}
-
-/* Raw register readbacks for bring-up debugging. */
-uint16_t epwm0a_read_tbctl(void)   { return epwm_rd16(EPWM_TBCTL);   }
-uint16_t epwm0a_read_aqctla(void)  { return epwm_rd16(EPWM_AQCTLA);  }
-uint16_t epwm0a_read_aqcsfrc(void) { return epwm_rd16(EPWM_AQCSFRC); }
-uint16_t epwm0a_read_cmpa(void)    { return epwm_rd16(EPWM_CMPA);    }
+uint16_t epwm0a_read_tbprd(void)   { return epwm_rd16(AM67_EPWM0_BASE, EPWM_TBPRD); }
+uint16_t epwm0a_read_tbctr(void)   { return epwm_rd16(AM67_EPWM0_BASE, EPWM_TBCTR); }
+uint16_t epwm0a_read_tbctl(void)   { return epwm_rd16(AM67_EPWM0_BASE, EPWM_TBCTL); }
+uint16_t epwm0a_read_aqctla(void)  { return epwm_rd16(AM67_EPWM0_BASE, EPWM_AQCTLA); }
+uint16_t epwm0a_read_aqcsfrc(void) { return epwm_rd16(AM67_EPWM0_BASE, EPWM_AQCSFRC); }
+uint16_t epwm0a_read_cmpa(void)    { return epwm_rd16(AM67_EPWM0_BASE, EPWM_CMPA); }

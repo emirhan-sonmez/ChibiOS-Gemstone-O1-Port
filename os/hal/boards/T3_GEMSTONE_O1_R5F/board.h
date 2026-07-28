@@ -94,6 +94,16 @@
 #define AM67_EPWM0_BASE         0x23000000U
 #define AM67_EPWM0_CLK_HZ       250000000U   /* fck = SYSCLKOUT, pre-prescale. */
 
+/*
+ * EPWM1 (eHRPWM) second instance: EHRPWM1_A -> GPIO6 (pin 31), EHRPWM1_B ->
+ * GPIO13 (pin 33). Same IP and 250 MHz fck as EPWM0; A and B share the time
+ * base but have independent CMPA/CMPB compares.
+ *
+ * NOTE: EHRPWM0_B is deliberately NOT defined/used -- its pad is physical pin 8,
+ * reserved for the UART1 console TX.
+ */
+#define AM67_EPWM1_BASE         0x23010000U
+
 #if !defined(_FROM_ASM_)
 #ifdef __cplusplus
 extern "C" {
