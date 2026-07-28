@@ -645,8 +645,13 @@
  * @note    The default failure mode is to halt the system with the global
  *          @p panic_msg variable set to @p NULL.
  */
+/* Enabled deliberately: with this FALSE a stack overflow is not detected at
+   all, it silently corrupts adjacent memory and the whole system dies with no
+   message (cost us a debugging round -- the trace simply stopped after
+   "kernel started" with remoteproc still reporting "running"). Halting on
+   overflow is far easier to diagnose than silent corruption. */
 #if !defined(CH_DBG_ENABLE_STACK_CHECK)
-#define CH_DBG_ENABLE_STACK_CHECK           FALSE
+#define CH_DBG_ENABLE_STACK_CHECK           TRUE
 #endif
 
 /**
