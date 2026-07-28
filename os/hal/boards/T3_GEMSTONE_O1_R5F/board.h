@@ -99,10 +99,22 @@
  * GPIO13 (pin 33). Same IP and 250 MHz fck as EPWM0; A and B share the time
  * base but have independent CMPA/CMPB compares.
  *
+ * ECAP0/1/2 (eCAP in APWM mode) -> GPIO12 (pin 32) / GPIO16 (pin 36) /
+ * GPIO18 (pin 12). Separate IP from EHRPWM. The APWM counter (TSCTR) is 32-bit
+ * and clocked directly by the module fck, so no prescale is used.
+ * AM67_ECAP_CLK_HZ is that fck: 125 MHz on this board -- HALF the EPWM fck (a
+ * different clock domain), verified via /sys/kernel/debug/clk/clk_summary
+ * (23100000/23110000/23120000.pwm fck = 125000000) and confirmed by scope
+ * (50 Hz with period = 2500000 ticks). All three ECAP instances share it.
+ *
  * NOTE: EHRPWM0_B is deliberately NOT defined/used -- its pad is physical pin 8,
  * reserved for the UART1 console TX.
  */
 #define AM67_EPWM1_BASE         0x23010000U
+#define AM67_ECAP0_BASE         0x23100000U
+#define AM67_ECAP1_BASE         0x23110000U
+#define AM67_ECAP2_BASE         0x23120000U
+#define AM67_ECAP_CLK_HZ        125000000U   /* ECAP fck, 32-bit counter (verified). */
 
 #if !defined(_FROM_ASM_)
 #ifdef __cplusplus
