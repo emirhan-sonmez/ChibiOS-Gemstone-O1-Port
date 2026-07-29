@@ -432,15 +432,18 @@ void spi_lld_select(SPIDriver *spip) {
   spi_ch_putreg(spip, MCSPI_CHCONF0_OFFSET,
                 spi_ch_getreg(spip, MCSPI_CHCONF0_OFFSET) |
                 MCSPI_CHCONF_FORCE);
-  spi_ch_putreg(spip, MCSPI_CHCTRL0_OFFSET,
-                spi_ch_getreg(spip, MCSPI_CHCTRL0_OFFSET) | MCSPI_CHCTRL_EN);
 }
 
 /**
  * @brief   Deasserts the slave select signal.
- * @details The channel is also disabled, so a driver reconfigured onto a
- *          different channel cannot leave two channels contending for the
- *          bus (NuttX am67_mcspi_cs_force() does the same).
+ * @details Only the FORCE bit is touched. The channel stays enabled for as
+ *          long as the driver is started -- disabling it here was tried and
+ *          reverted, because an disabled channel stops driving its CS pad
+ *          and a floating chip select between transactions is exactly the
+ *          kind of fault that shows up as one register in a burst not
+ *          taking. Cross-channel contention is prevented by
+ *          @p spi_lld_stop() instead, which disables the channel when the
+ *          driver is reconfigured.
  *
  * @param[in] spip      pointer to the @p SPIDriver object
  *
@@ -451,8 +454,6 @@ void spi_lld_unselect(SPIDriver *spip) {
   spi_ch_putreg(spip, MCSPI_CHCONF0_OFFSET,
                 spi_ch_getreg(spip, MCSPI_CHCONF0_OFFSET) &
                 ~MCSPI_CHCONF_FORCE);
-  spi_ch_putreg(spip, MCSPI_CHCTRL0_OFFSET,
-                spi_ch_getreg(spip, MCSPI_CHCTRL0_OFFSET) & ~MCSPI_CHCTRL_EN);
 }
 #endif
 
