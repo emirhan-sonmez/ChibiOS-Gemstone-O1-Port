@@ -64,8 +64,11 @@
 #define AM67_IMU_EN_PIN             12U
 
 /* Bound for busy-wait loops on CHSTAT, avoids a silent hard hang if the
-   module clock is not running.*/
-#define MCSPI_WAIT_LOOPS            1000000U
+   module clock is not running. One frame at the slowest configured clock
+   is a few microseconds, so this is several orders of magnitude of slack;
+   it is sized to fail fast enough that a caller polling a dead bus stays
+   responsive, not to be generous.*/
+#define MCSPI_WAIT_LOOPS            200000U
 
 /*===========================================================================*/
 /* Driver exported variables.                                                */
@@ -141,22 +144,28 @@ static void spi0_pinmux(void) {
      a second chip select.*/
 }
 
-#if AM67_SPI_MCSPI0_DRIVE_IMU_EN == TRUE
-/*
- * Drives the IMU enable line (MCU_GPIO0_12) active. The line is active low
- * per the board design, so the ICM-20948 is only powered/released once this
- * pin is driven low. Linux normally holds it for us, but the R5F cannot
- * depend on that: nothing guarantees the ordering, and a bus that answers
- * 0x00 to every register is indistinguishable from a wiring fault.
+/**
+ * @brief   Drives the onboard IMU enable line (MCU_GPIO0_12) active.
+ * @details The line is active low per the board design, so the ICM-20948 is
+ *          only released once this pin is driven low. Linux normally holds
+ *          it, but the R5F cannot depend on that: nothing orders the two,
+ *          and a part held disabled answers 0x00 to every register, which
+ *          is indistinguishable from a wiring fault.
  *
- * Mapping and polarity from the NuttX AM67 port
- * (arch/arm/src/am67/am67_gpio.c, AM67_GPIO_ID_IMU_EN).
+ *          Deliberately NOT called from @p spi_lld_start(): it touches a
+ *          different peripheral (MCU_GPIO0) whose clock and power state
+ *          this driver does not manage, so the caller decides whether and
+ *          when to risk that access, and can trace around it.
+ *
+ *          Mapping and polarity from the NuttX AM67 port
+ *          (arch/arm/src/am67/am67_gpio.c, AM67_GPIO_ID_IMU_EN).
  */
-static void spi0_imu_enable(void) {
+void am67_spi0_imu_enable(void) {
   const uint32_t bank = AM67_MCU_GPIO0_BASE +
                         AM67_GPIO_BANK_OFFSET(AM67_IMU_EN_PIN >> 5);
   const uint32_t mask = 1U << (AM67_IMU_EN_PIN & 31U);
 
+  am67_mcu_padcfg_unlock();
   am67_mcu_pad_config(AM67_PAD_WKUP_UART0_RTSN,
             AM67_PIN_MODE(7) | AM67_PIN_PULL_DISABLE);
 
@@ -164,7 +173,6 @@ static void spi0_imu_enable(void) {
   *(volatile uint32_t *)(bank + AM67_GPIO_DIR_OFFSET) &= ~mask;
   *(volatile uint32_t *)(bank + AM67_GPIO_CLR_DATA_OFFSET) = mask;
 }
-#endif /* AM67_SPI_MCSPI0_DRIVE_IMU_EN */
 
 /**
  * @brief   Waits for a CHSTAT flag with a bounded loop.
@@ -360,9 +368,10 @@ void spi_lld_init(void) {
 
 #if AM67_SPI_USE_MCSPI0 == TRUE
   spiObjectInit(&SPID1);
-  SPID1.base    = AM67_MCSPI0_BASE;
-  SPID1.clock   = AM67_MCSPI0_CLOCK;
-  SPID1.channel = 0U;
+  SPID1.base         = AM67_MCSPI0_BASE;
+  SPID1.clock        = AM67_MCSPI0_CLOCK;
+  SPID1.channel      = 0U;
+  SPID1.xfer_timeout = false;
   vim_set_handler(AM67_MCSPI0_IRQ, mcspi0_irq_handler, NULL);
   vim_set_priority(AM67_MCSPI0_IRQ, AM67_SPI_MCSPI0_IRQ_PRIORITY);
 #endif
@@ -380,9 +389,6 @@ void spi_lld_start(SPIDriver *spip) {
 #if AM67_SPI_USE_MCSPI0 == TRUE
   if (spip == &SPID1) {
     spi0_pinmux();
-#if AM67_SPI_MCSPI0_DRIVE_IMU_EN == TRUE
-    spi0_imu_enable();
-#endif
     mcspi_init(spip);
     vim_enable_irq(AM67_MCSPI0_IRQ);
   }
@@ -538,12 +544,16 @@ void spi_lld_abort(SPIDriver *spip) {
  */
 uint16_t spi_lld_polled_exchange(SPIDriver *spip, uint16_t frame) {
 
+  spip->xfer_timeout = false;
+
   if (!spi_wait_chstat(spip, MCSPI_CHSTAT_TXS)) {
+    spip->xfer_timeout = true;
     return 0U;
   }
   spi_ch_putreg(spip, MCSPI_TX0_OFFSET, (uint32_t)frame);
 
   if (!spi_wait_chstat(spip, MCSPI_CHSTAT_RXS)) {
+    spip->xfer_timeout = true;
     return 0U;
   }
   return (uint16_t)spi_ch_getreg(spip, MCSPI_RX0_OFFSET);

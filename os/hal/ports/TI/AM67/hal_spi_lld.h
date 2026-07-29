@@ -163,17 +163,6 @@
 #define AM67_SPI_MCSPI0_IRQ_PRIORITY    0x8U
 #endif
 
-/**
- * @brief   Drive the onboard IMU enable line when MCSPI0 starts.
- * @details The ICM-20948 enable pin (MCU_GPIO0_12, active low) is asserted
- *          from @p spi_lld_start(). Set to @p FALSE to leave the line to
- *          Linux, which is the fallback if touching MCU_GPIO0 from the R5F
- *          turns out to fault (the module is assumed powered and clocked;
- *          that assumption is not enforced anywhere).
- */
-#if !defined(AM67_SPI_MCSPI0_DRIVE_IMU_EN) || defined(__DOXYGEN__)
-#define AM67_SPI_MCSPI0_DRIVE_IMU_EN    TRUE
-#endif
 
 /*===========================================================================*/
 /* Derived constants and error checks.                                       */
@@ -203,6 +192,11 @@
   size_t                    remaining;                                      \
   /* McSPI channel in use, cached from the configuration for the ISR.*/     \
   uint8_t                   channel;                                        \
+  /* Set by spi_lld_polled_exchange() when CHSTAT never reported ready.  */ \
+  /* A polled exchange returns 0 on timeout, which is indistinguishable  */ \
+  /* from a slave that legitimately answered 0x00 -- this is how a       */ \
+  /* caller tells the two apart.*/                                          \
+  bool                      xfer_timeout;                                   \
   /* False when the module failed to come out of reset (clock gated).*/     \
   bool                      ready;
 
@@ -236,6 +230,10 @@ extern SPIDriver SPID1;
 extern "C" {
 #endif
   void spi_lld_init(void);
+  /* Board-level helper: asserts the onboard IMU enable line (MCU_GPIO0_12,
+     active low). Separate from spi_lld_start() on purpose -- it touches a
+     peripheral this driver does not own. See the definition.*/
+  void am67_spi0_imu_enable(void);
   void spi_lld_start(SPIDriver *spip);
   void spi_lld_stop(SPIDriver *spip);
 #if (SPI_SELECT_MODE == SPI_SELECT_MODE_LLD) || defined(__DOXYGEN__)
