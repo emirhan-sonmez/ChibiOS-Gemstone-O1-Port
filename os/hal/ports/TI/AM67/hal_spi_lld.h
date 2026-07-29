@@ -90,6 +90,11 @@
 
 /* IRQSTATUS/IRQENABLE bits (channel 0) **************************************/
 
+/* Per-channel variants: each channel owns a nibble of IRQSTATUS/IRQENABLE,
+   TX_EMPTY at bit 0 of the nibble and RX_FULL at bit 2.                     */
+#define MCSPI_IRQ_TX_EMPTY(n)       (1U << (4U * (uint32_t)(n)))
+#define MCSPI_IRQ_RX_FULL(n)        (1U << ((4U * (uint32_t)(n)) + 2U))
+
 #define MCSPI_IRQ_TX0_EMPTY         (1U << 0)
 #define MCSPI_IRQ_TX0_UNDERFLOW     (1U << 1)
 #define MCSPI_IRQ_RX0_FULL          (1U << 2)
@@ -123,6 +128,8 @@
 #define MCSPI_CHCONF_DPE1           (1U << 17) /* 1 = no TX on D1            */
 #define MCSPI_CHCONF_IS             (1U << 18) /* 1 = RX from D1             */
 #define MCSPI_CHCONF_FORCE          (1U << 20) /* Manual CS assertion        */
+#define MCSPI_CHCONF_SPIENSLV_SHIFT 21U        /* CS pin routed to this ch   */
+#define MCSPI_CHCONF_SPIENSLV_MASK  (3U << MCSPI_CHCONF_SPIENSLV_SHIFT)
 #define MCSPI_CHCONF_CLKG           (1U << 29) /* Granular clock divider     */
 
 /* CHSTAT bits ***************************************************************/
@@ -156,6 +163,18 @@
 #define AM67_SPI_MCSPI0_IRQ_PRIORITY    0x8U
 #endif
 
+/**
+ * @brief   Drive the onboard IMU enable line when MCSPI0 starts.
+ * @details The ICM-20948 enable pin (MCU_GPIO0_12, active low) is asserted
+ *          from @p spi_lld_start(). Set to @p FALSE to leave the line to
+ *          Linux, which is the fallback if touching MCU_GPIO0 from the R5F
+ *          turns out to fault (the module is assumed powered and clocked;
+ *          that assumption is not enforced anywhere).
+ */
+#if !defined(AM67_SPI_MCSPI0_DRIVE_IMU_EN) || defined(__DOXYGEN__)
+#define AM67_SPI_MCSPI0_DRIVE_IMU_EN    TRUE
+#endif
+
 /*===========================================================================*/
 /* Derived constants and error checks.                                       */
 /*===========================================================================*/
@@ -182,6 +201,8 @@
   uint8_t                   *rxptr;                                         \
   /* Frames still to be exchanged.*/                                        \
   size_t                    remaining;                                      \
+  /* McSPI channel in use, cached from the configuration for the ISR.*/     \
+  uint8_t                   channel;                                        \
   /* False when the module failed to come out of reset (clock gated).*/     \
   bool                      ready;
 
@@ -193,7 +214,11 @@
   /* SPI clock frequency in Hz.*/                                           \
   uint32_t                  speed;                                          \
   /* SPI mode (0..3), standard CPOL/CPHA encoding.*/                        \
-  uint8_t                   mode;
+  uint8_t                   mode;                                           \
+  /* McSPI channel, 0..3. Channel n drives the SPI0_CSn pad, so this is  */ \
+  /* also the chip select: 1 = BMP390, 3 = ICM-20948 on the Gemstone O1. */ \
+  /* Zero (CS0) keeps the historical single-channel behaviour.*/            \
+  uint8_t                   cs_channel;
 
 /*===========================================================================*/
 /* Driver macros.                                                            */

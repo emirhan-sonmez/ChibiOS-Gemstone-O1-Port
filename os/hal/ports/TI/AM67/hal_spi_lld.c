@@ -18,10 +18,13 @@
  * @file    TI/AM67/hal_spi_lld.c
  * @brief   AM67 (J722S) SPI subsystem low level driver source.
  * @details Interrupt-driven driver for the TI McSPI in single-channel
- *          master mode, one frame in flight at a time (RX0_FULL paced).
- *          Controller init sequence and channel configuration derived from
- *          NuttX arch/arm/src/am67/am67_mcspi.c (Apache-2.0). The SPI0
- *          pads are muxed here (mode 0) in case the Linux device tree
+ *          master mode, one frame in flight at a time (RX_FULL paced).
+ *          The active channel comes from @p SPIConfig::cs_channel and is
+ *          also the chip select, since SPIENSLV routes channel n to the
+ *          SPI0_CSn pad: on this board CS1 is the barometer and CS3 the
+ *          ICM-20948. Controller init sequence and channel configuration
+ *          derived from NuttX arch/arm/src/am67/am67_mcspi.c (Apache-2.0).
+ *          The SPI0 pads are muxed here in case the Linux device tree
  *          leaves them unconfigured (the write is idempotent otherwise).
  *
  * @addtogroup SPI
@@ -40,9 +43,25 @@
 
 /* MCU-domain pad offsets for the MCU_SPI0 signals.*/
 #define AM67_PAD_SPI0_CS0           0x0000U
+#define AM67_PAD_SPI0_CS1           0x0004U
 #define AM67_PAD_SPI0_CLK           0x0008U
 #define AM67_PAD_SPI0_D0            0x000CU
 #define AM67_PAD_SPI0_D1            0x0010U
+
+/* CS2 and CS3 are not dedicated pads: they are alternate functions on the
+   WKUP_UART0_RXD and MCU_MCAN0_TX pads. Mapping taken from the NuttX AM67
+   port (arch/arm/src/am67/am67_pinmux.c), which matches the Linux device
+   tree for this board: CS1 = BMP390, CS3 = ICM-20948.*/
+#define AM67_PAD_WKUP_UART0_RXD     0x0024U   /* SPI0_CS2, mux mode 2.      */
+#define AM67_PAD_WKUP_UART0_RTSN    0x0030U   /* MCU_GPIO0_12, mux mode 7.  */
+#define AM67_PAD_MCU_MCAN0_TX       0x0034U   /* SPI0_CS3, mux mode 2.      */
+
+/* IMU enable line: MCU_GPIO0 pin 12, active low per the board design.*/
+#define AM67_MCU_GPIO0_BASE         0x04201000U
+#define AM67_GPIO_BANK_OFFSET(n)    (0x10U + ((uint32_t)(n) * 0x28U))
+#define AM67_GPIO_DIR_OFFSET        0x00U
+#define AM67_GPIO_CLR_DATA_OFFSET   0x0CU
+#define AM67_IMU_EN_PIN             12U
 
 /* Bound for busy-wait loops on CHSTAT, avoids a silent hard hang if the
    module clock is not running.*/
@@ -73,9 +92,30 @@ static inline void spi_putreg(SPIDriver *spip, uint32_t offset,
 }
 
 /*
- * Routes SPI0 CLK/D0/D1/CS0 pads to the McSPI (mux mode 0). CLK and both
+ * Channel register accessors. CHCONF/CHSTAT/CHCTRL/TX/RX repeat every 0x14
+ * bytes, so the channel 0 offsets in the header are the base of the block.
+ */
+static inline uint32_t spi_ch_getreg(SPIDriver *spip, uint32_t offset) {
+
+  return spi_getreg(spip, offset + MCSPI_CH_OFFSET(spip->channel));
+}
+
+static inline void spi_ch_putreg(SPIDriver *spip, uint32_t offset,
+                                 uint32_t value) {
+
+  spi_putreg(spip, offset + MCSPI_CH_OFFSET(spip->channel), value);
+}
+
+/*
+ * Routes SPI0 CLK/D0/D1 and the CS0/CS1/CS3 pads to the McSPI. CLK and both
  * data pads get the receiver enabled, D0 input is what makes the
  * MOSI-MISO jumper loopback test possible (matches the NuttX pad setup).
+ *
+ * CS0 and CS1 are dedicated pads at mux mode 0; CS3 is an alternate function
+ * at mux mode 2 on a pad named for another peripheral. All are muxed on
+ * every start regardless of which channel this configuration selects: the
+ * writes are idempotent, and a per-channel pinmux would silently do nothing
+ * for a device probed before its channel is configured.
  */
 static void spi0_pinmux(void) {
 
@@ -89,7 +129,42 @@ static void spi0_pinmux(void) {
             AM67_PIN_MODE(0) | AM67_PIN_INPUT_ENABLE | AM67_PIN_PULL_DISABLE);
   am67_mcu_pad_config(AM67_PAD_SPI0_CS0,
             AM67_PIN_MODE(0) | AM67_PIN_PULL_DISABLE);
+  am67_mcu_pad_config(AM67_PAD_SPI0_CS1,
+            AM67_PIN_MODE(0) | AM67_PIN_PULL_DISABLE);
+  am67_mcu_pad_config(AM67_PAD_MCU_MCAN0_TX,
+            AM67_PIN_MODE(2) | AM67_PIN_PULL_DISABLE);
+
+  /* CS2 (AM67_PAD_WKUP_UART0_RXD at mode 2) is deliberately NOT muxed here.
+     It reaches only the 40-pin header, no onboard sensor, and the pad it
+     borrows belongs to the wakeup-domain UART0 -- taking it costs a console
+     that is not ours to take. Add it here if a header SPI device ever needs
+     a second chip select.*/
 }
+
+#if AM67_SPI_MCSPI0_DRIVE_IMU_EN == TRUE
+/*
+ * Drives the IMU enable line (MCU_GPIO0_12) active. The line is active low
+ * per the board design, so the ICM-20948 is only powered/released once this
+ * pin is driven low. Linux normally holds it for us, but the R5F cannot
+ * depend on that: nothing guarantees the ordering, and a bus that answers
+ * 0x00 to every register is indistinguishable from a wiring fault.
+ *
+ * Mapping and polarity from the NuttX AM67 port
+ * (arch/arm/src/am67/am67_gpio.c, AM67_GPIO_ID_IMU_EN).
+ */
+static void spi0_imu_enable(void) {
+  const uint32_t bank = AM67_MCU_GPIO0_BASE +
+                        AM67_GPIO_BANK_OFFSET(AM67_IMU_EN_PIN >> 5);
+  const uint32_t mask = 1U << (AM67_IMU_EN_PIN & 31U);
+
+  am67_mcu_pad_config(AM67_PAD_WKUP_UART0_RTSN,
+            AM67_PIN_MODE(7) | AM67_PIN_PULL_DISABLE);
+
+  /* Output direction is 0 on this controller.*/
+  *(volatile uint32_t *)(bank + AM67_GPIO_DIR_OFFSET) &= ~mask;
+  *(volatile uint32_t *)(bank + AM67_GPIO_CLR_DATA_OFFSET) = mask;
+}
+#endif /* AM67_SPI_MCSPI0_DRIVE_IMU_EN */
 
 /**
  * @brief   Waits for a CHSTAT flag with a bounded loop.
@@ -102,7 +177,7 @@ static bool spi_wait_chstat(SPIDriver *spip, uint32_t flag) {
   uint32_t i;
 
   for (i = 0U; i < MCSPI_WAIT_LOOPS; i++) {
-    if ((spi_getreg(spip, MCSPI_CHSTAT0_OFFSET) & flag) != 0U) {
+    if ((spi_ch_getreg(spip, MCSPI_CHSTAT0_OFFSET) & flag) != 0U) {
       return true;
     }
   }
@@ -121,7 +196,8 @@ static void mcspi_init(SPIDriver *spip) {
   const SPIConfig *config = spip->config;
   uint32_t chconf, chctrl, div, i;
 
-  spip->ready = false;
+  spip->ready   = false;
+  spip->channel = config->cs_channel & 3U;
 
   /* No-idle so the interconnect does not gate the functional clock while
      CHSTAT is polled (K3 HL wrapper).*/
@@ -158,23 +234,26 @@ static void mcspi_init(SPIDriver *spip) {
     div = 4096U;
   }
 
-  /* Channel 0: RX from D1 (MISO), TX on D0 (MOSI), CS active low,
-     8-bit frames, POL/PHA from the standard SPI mode number.*/
+  /* Selected channel: RX from D1 (MISO), TX on D0 (MOSI), CS active low,
+     8-bit frames, POL/PHA from the standard SPI mode number. SPIENSLV
+     routes the channel to its own CS pad, so channel n drives SPI0_CSn.*/
   chconf = MCSPI_CHCONF_CLKG | MCSPI_CHCONF_IS | MCSPI_CHCONF_DPE1 |
            MCSPI_CHCONF_EPOL |
            (7U << MCSPI_CHCONF_WL_SHIFT) |
-           (((div - 1U) & 0x0FU) << MCSPI_CHCONF_CLKD_SHIFT);
+           (((div - 1U) & 0x0FU) << MCSPI_CHCONF_CLKD_SHIFT) |
+           (((uint32_t)spip->channel << MCSPI_CHCONF_SPIENSLV_SHIFT) &
+            MCSPI_CHCONF_SPIENSLV_MASK);
   if ((config->mode & 2U) != 0U) {
     chconf |= MCSPI_CHCONF_POL;
   }
   if ((config->mode & 1U) != 0U) {
     chconf |= MCSPI_CHCONF_PHA;
   }
-  spi_putreg(spip, MCSPI_CHCONF0_OFFSET, chconf);
+  spi_ch_putreg(spip, MCSPI_CHCONF0_OFFSET, chconf);
 
   chctrl = (((div - 1U) >> 4) << MCSPI_CHCTRL_EXTCLK_SHIFT) &
            MCSPI_CHCTRL_EXTCLK_MASK;
-  spi_putreg(spip, MCSPI_CHCTRL0_OFFSET, chctrl);
+  spi_ch_putreg(spip, MCSPI_CHCTRL0_OFFSET, chctrl);
 
   /* All interrupts off and pending flags cleared, they are enabled per
      transfer.*/
@@ -182,7 +261,7 @@ static void mcspi_init(SPIDriver *spip) {
   spi_putreg(spip, MCSPI_IRQSTATUS_OFFSET, 0xFFFFFFFFU);
 
   /* Channel enabled, idle until FORCE asserts the CS.*/
-  spi_putreg(spip, MCSPI_CHCTRL0_OFFSET, chctrl | MCSPI_CHCTRL_EN);
+  spi_ch_putreg(spip, MCSPI_CHCTRL0_OFFSET, chctrl | MCSPI_CHCTRL_EN);
 
   spip->ready = true;
 }
@@ -206,13 +285,13 @@ static void spi_start_transfer(SPIDriver *spip, size_t n,
   spip->remaining = n;
 
   spi_putreg(spip, MCSPI_IRQSTATUS_OFFSET, 0xFFFFFFFFU);
-  spi_putreg(spip, MCSPI_IRQENABLE_OFFSET, MCSPI_IRQ_RX0_FULL);
+  spi_putreg(spip, MCSPI_IRQENABLE_OFFSET, MCSPI_IRQ_RX_FULL(spip->channel));
 
   first = 0xFFU;
   if (spip->txptr != NULL) {
     first = *spip->txptr++;
   }
-  spi_putreg(spip, MCSPI_TX0_OFFSET, first);
+  spi_ch_putreg(spip, MCSPI_TX0_OFFSET, first);
 }
 
 /**
@@ -221,12 +300,12 @@ static void spi_start_transfer(SPIDriver *spip, size_t n,
  * @param[in] spip      pointer to the @p SPIDriver object
  */
 static void spi_serve_interrupt(SPIDriver *spip) {
+  const uint32_t rx_full = MCSPI_IRQ_RX_FULL(spip->channel);
 
-  while ((spi_getreg(spip, MCSPI_IRQSTATUS_OFFSET) &
-          MCSPI_IRQ_RX0_FULL) != 0U) {
-    uint32_t frame = spi_getreg(spip, MCSPI_RX0_OFFSET);
+  while ((spi_getreg(spip, MCSPI_IRQSTATUS_OFFSET) & rx_full) != 0U) {
+    uint32_t frame = spi_ch_getreg(spip, MCSPI_RX0_OFFSET);
 
-    spi_putreg(spip, MCSPI_IRQSTATUS_OFFSET, MCSPI_IRQ_RX0_FULL);
+    spi_putreg(spip, MCSPI_IRQSTATUS_OFFSET, rx_full);
 
     if (spip->rxptr != NULL) {
       *spip->rxptr++ = (uint8_t)frame;
@@ -240,10 +319,10 @@ static void spi_serve_interrupt(SPIDriver *spip) {
     }
 
     if (spip->txptr != NULL) {
-      spi_putreg(spip, MCSPI_TX0_OFFSET, *spip->txptr++);
+      spi_ch_putreg(spip, MCSPI_TX0_OFFSET, *spip->txptr++);
     }
     else {
-      spi_putreg(spip, MCSPI_TX0_OFFSET, 0xFFU);
+      spi_ch_putreg(spip, MCSPI_TX0_OFFSET, 0xFFU);
     }
   }
 }
@@ -281,8 +360,9 @@ void spi_lld_init(void) {
 
 #if AM67_SPI_USE_MCSPI0 == TRUE
   spiObjectInit(&SPID1);
-  SPID1.base  = AM67_MCSPI0_BASE;
-  SPID1.clock = AM67_MCSPI0_CLOCK;
+  SPID1.base    = AM67_MCSPI0_BASE;
+  SPID1.clock   = AM67_MCSPI0_CLOCK;
+  SPID1.channel = 0U;
   vim_set_handler(AM67_MCSPI0_IRQ, mcspi0_irq_handler, NULL);
   vim_set_priority(AM67_MCSPI0_IRQ, AM67_SPI_MCSPI0_IRQ_PRIORITY);
 #endif
@@ -300,6 +380,9 @@ void spi_lld_start(SPIDriver *spip) {
 #if AM67_SPI_USE_MCSPI0 == TRUE
   if (spip == &SPID1) {
     spi0_pinmux();
+#if AM67_SPI_MCSPI0_DRIVE_IMU_EN == TRUE
+    spi0_imu_enable();
+#endif
     mcspi_init(spip);
     vim_enable_irq(AM67_MCSPI0_IRQ);
   }
@@ -322,15 +405,17 @@ void spi_lld_stop(SPIDriver *spip) {
     }
 #endif
     spi_putreg(spip, MCSPI_IRQENABLE_OFFSET, 0U);
-    spi_putreg(spip, MCSPI_CHCTRL0_OFFSET,
-               spi_getreg(spip, MCSPI_CHCTRL0_OFFSET) & ~MCSPI_CHCTRL_EN);
+    spi_ch_putreg(spip, MCSPI_CHCTRL0_OFFSET,
+                  spi_ch_getreg(spip, MCSPI_CHCTRL0_OFFSET) &
+                  ~MCSPI_CHCTRL_EN);
   }
 }
 
 #if (SPI_SELECT_MODE == SPI_SELECT_MODE_LLD) || defined(__DOXYGEN__)
 /**
  * @brief   Asserts the slave select signal and prepares for transfers.
- * @details The FORCE bit drives the CS0 pad low (EPOL selects active low).
+ * @details The FORCE bit drives the channel's own CS pad low (EPOL selects
+ *          active low, SPIENSLV picked the pad in @p mcspi_init()).
  *
  * @param[in] spip      pointer to the @p SPIDriver object
  *
@@ -338,12 +423,18 @@ void spi_lld_stop(SPIDriver *spip) {
  */
 void spi_lld_select(SPIDriver *spip) {
 
-  spi_putreg(spip, MCSPI_CHCONF0_OFFSET,
-             spi_getreg(spip, MCSPI_CHCONF0_OFFSET) | MCSPI_CHCONF_FORCE);
+  spi_ch_putreg(spip, MCSPI_CHCONF0_OFFSET,
+                spi_ch_getreg(spip, MCSPI_CHCONF0_OFFSET) |
+                MCSPI_CHCONF_FORCE);
+  spi_ch_putreg(spip, MCSPI_CHCTRL0_OFFSET,
+                spi_ch_getreg(spip, MCSPI_CHCTRL0_OFFSET) | MCSPI_CHCTRL_EN);
 }
 
 /**
  * @brief   Deasserts the slave select signal.
+ * @details The channel is also disabled, so a driver reconfigured onto a
+ *          different channel cannot leave two channels contending for the
+ *          bus (NuttX am67_mcspi_cs_force() does the same).
  *
  * @param[in] spip      pointer to the @p SPIDriver object
  *
@@ -351,8 +442,11 @@ void spi_lld_select(SPIDriver *spip) {
  */
 void spi_lld_unselect(SPIDriver *spip) {
 
-  spi_putreg(spip, MCSPI_CHCONF0_OFFSET,
-             spi_getreg(spip, MCSPI_CHCONF0_OFFSET) & ~MCSPI_CHCONF_FORCE);
+  spi_ch_putreg(spip, MCSPI_CHCONF0_OFFSET,
+                spi_ch_getreg(spip, MCSPI_CHCONF0_OFFSET) &
+                ~MCSPI_CHCONF_FORCE);
+  spi_ch_putreg(spip, MCSPI_CHCTRL0_OFFSET,
+                spi_ch_getreg(spip, MCSPI_CHCTRL0_OFFSET) & ~MCSPI_CHCTRL_EN);
 }
 #endif
 
@@ -447,12 +541,12 @@ uint16_t spi_lld_polled_exchange(SPIDriver *spip, uint16_t frame) {
   if (!spi_wait_chstat(spip, MCSPI_CHSTAT_TXS)) {
     return 0U;
   }
-  spi_putreg(spip, MCSPI_TX0_OFFSET, (uint32_t)frame);
+  spi_ch_putreg(spip, MCSPI_TX0_OFFSET, (uint32_t)frame);
 
   if (!spi_wait_chstat(spip, MCSPI_CHSTAT_RXS)) {
     return 0U;
   }
-  return (uint16_t)spi_getreg(spip, MCSPI_RX0_OFFSET);
+  return (uint16_t)spi_ch_getreg(spip, MCSPI_RX0_OFFSET);
 }
 
 #endif /* HAL_USE_SPI == TRUE */
