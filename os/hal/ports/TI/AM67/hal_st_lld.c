@@ -92,8 +92,23 @@ void st_lld_init(void) {
   *tmr_reg(TIMER_TLDR) = reload;
   *tmr_reg(TIMER_IRQSTATUS_SET) = TIMER_IRQ_OVF;
 
+  /* Highest priority (0 = most urgent, VIM_LOWEST_PRIORITY = 0xF = least):
+     the system tick must always be able to preempt any peripheral ISR, or
+     that peripheral's interrupt load can stall the scheduler's own
+     timekeeping. Previously 0x8, the same level as UART1
+     (AM67_SERIAL_UART1_IRQ_PRIORITY in mcuconf.h) and every other
+     peripheral in this port -- same-priority VIM interrupts cannot preempt
+     each other, so a UART1 RX burst busy inside its own drain loop
+     (sd_lld_serve_interrupt(), up to ~2.5ms for a 32-byte iBus frame at
+     115200 baud, 130 times/sec) could delay the 1kHz tick for that entire
+     window. Root-caused on hardware: intermittent hangs (during boot and
+     during steady-state operation, never reproduced without a receiver
+     actively transmitting) that required a full power cycle to recover
+     from, with the R5F core apparently still "running" per Linux but never
+     producing another trace line. See the ArduPilot Gemstone-QuadPlane
+     vault, Session Notes 2026-07-29, for the full investigation. */
   vim_set_handler(AM67_TIMER0_IRQ, tick_irq_handler, NULL);
-  vim_set_priority(AM67_TIMER0_IRQ, 0x8U);
+  vim_set_priority(AM67_TIMER0_IRQ, 0x0U);
   vim_enable_irq(AM67_TIMER0_IRQ);
 
   /* Start counting.*/
