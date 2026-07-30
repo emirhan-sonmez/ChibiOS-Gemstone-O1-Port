@@ -43,6 +43,13 @@
 #define EPWM_AQCTLB             0x18U  /* Action qualifier, output B.         */
 #define EPWM_AQCSFRC            0x1CU  /* Continuous software force.          */
 
+/* CMPCTL fields: LOADAMODE[1:0], LOADBMODE[3:2], SHDWAMODE[4], SHDWBMODE[6].
+   All-zero = shadow mode for both compares, loading into the active register at
+   CTR=ZERO. That is also the reset value, but this driver programs it
+   explicitly (see ehrpwm_start) rather than inheriting whatever the Linux
+   pwm-tiehrpwm driver last left in it. */
+#define CMPCTL_SHADOW_LOAD_ZERO 0x0000U
+
 /* TBCTL fields. */
 #define TBCTL_CTRMODE_UP        (0U << 0)   /* Count up.                      */
 #define TBCTL_CTRMODE_STOP      (3U << 0)   /* Stop-freeze.                   */
@@ -100,6 +107,14 @@ static uint16_t epwm_tbprd_for(uint32_t frame_hz) {
 /*===========================================================================*/
 
 void ehrpwm_start(uint32_t base, uint32_t frame_hz) {
+
+  /* Do not inherit CMPCTL. Linux owns the clock gate for this peripheral and
+     its own pwm-tiehrpwm driver may have touched this register before we ever
+     ran, so the reset value cannot be assumed. Both compares must be in shadow
+     mode with load at CTR=ZERO: in immediate mode a compare write takes effect
+     part-way through a period and truncates the pulse being emitted, which on
+     these pins means handing an ESC a short pulse it never asked for. */
+  epwm_wr16(base, EPWM_CMPCTL, CMPCTL_SHADOW_LOAD_ZERO);
 
   epwm_wr16(base, EPWM_TBPRD, epwm_tbprd_for(frame_hz));
   epwm_wr16(base, EPWM_TBCTR, 0U);

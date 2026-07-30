@@ -86,9 +86,20 @@ void ecap_start(uint32_t base, uint32_t frame_hz) {
   ecctl2 &= ~ECCTL2_APWM_POL_LOW;
   ecap_wr16(base, ECAP_ECCTL2, ecctl2);
 
-  /* Counter is already free-running (Linux enabled the channel), so program
-     the shadow registers; they load into the active period/compare at the
-     next period boundary. Start at 0% duty (output low). */
+  /* Program the ACTIVE period/compare directly, then the shadows.
+     2026-07-30: writing only the shadows (the previous behaviour) deadlocks if
+     Linux left CAP1 = 0. The shadow pair loads into the active pair on the
+     period boundary, i.e. on TSCTR reaching CAP1 -- with CAP1 = 0 there is no
+     period event to load on, TSCTR free-runs to 2^32 (~34 s at 125 MHz) and the
+     active compare stays 0 forever, so the pin emits nothing and every readback
+     shows shadow and active permanently disagreeing. Observed on ch3/ECAP0
+     (pin 32) as shadow[cmp=125000] active[cmp=0] sustained across many ticks,
+     and as a dead pin in the isolation test. Writing the active registers here
+     makes the very first period valid regardless of what Linux left behind;
+     the shadows then keep subsequent updates glitch-free. Start at 0% duty
+     (output low). */
+  ecap_wr32(base, ECAP_CAP1, period);
+  ecap_wr32(base, ECAP_CAP2, 0U);
   ecap_wr32(base, ECAP_CAP3, period);
   ecap_wr32(base, ECAP_CAP4, 0U);
 }
