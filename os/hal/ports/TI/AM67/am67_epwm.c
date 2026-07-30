@@ -131,6 +131,19 @@ void ehrpwm_out_set_pulse_us(uint32_t base, bool output_b, uint32_t pulse_us) {
   epwm_wr16(base, output_b ? EPWM_CMPB : EPWM_CMPA, (uint16_t)cmp);
 }
 
+void ehrpwm_out_reassert(uint32_t base, bool output_b) {
+  uint16_t force = epwm_rd16(base, EPWM_AQCSFRC);
+
+  if (!output_b) {
+    epwm_wr16(base, EPWM_AQCTLA, AQCTLA_UP_PWM);
+    epwm_wr16(base, EPWM_AQCSFRC, force & ~AQCSFRC_CSFA_MASK);
+  }
+  else {
+    epwm_wr16(base, EPWM_AQCTLB, AQCTLB_UP_PWM);
+    epwm_wr16(base, EPWM_AQCSFRC, force & ~AQCSFRC_CSFB_MASK);
+  }
+}
+
 void ehrpwm_out_low(uint32_t base, bool output_b) {
   uint16_t force = epwm_rd16(base, EPWM_AQCSFRC);
 
@@ -148,6 +161,10 @@ uint16_t ehrpwm_read_tbprd(uint32_t base) { return epwm_rd16(base, EPWM_TBPRD); 
 uint16_t ehrpwm_read_cmp(uint32_t base, bool output_b) {
 
   return epwm_rd16(base, output_b ? EPWM_CMPB : EPWM_CMPA);
+}
+uint16_t ehrpwm_read_aqctl(uint32_t base, bool output_b) {
+
+  return epwm_rd16(base, output_b ? EPWM_AQCTLB : EPWM_AQCTLA);
 }
 
 /*===========================================================================*/
