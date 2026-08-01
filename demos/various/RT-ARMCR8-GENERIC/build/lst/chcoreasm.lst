@@ -1,0 +1,288 @@
+ARM GAS  /tmp/ccqhJp5d.s 			page 1
+
+
+   1              	# 0 "../../../os/common/ports/ARMv7-R/compilers/GCC/chcoreasm.S"
+   2              	# 1 "/home/emirhan/Documents/gemstone/chibiOS-port/ChibiOS/demos/various/RT-ARMCR8-GENERIC//"
+   1              	...
+   0              	
+   0              	
+   1              	/*
+   2              	    ChibiOS - Copyright (C) 2006-2026 Giovanni Di Sirio.
+   3              	
+   4              	    This file is part of ChibiOS.
+   5              	
+   6              	    ChibiOS is free software; you can redistribute it and/or modify
+   7              	    it under the terms of the GNU General Public License as published by
+   8              	    the Free Software Foundation version 3 of the License.
+   9              	
+  10              	    ChibiOS is distributed in the hope that it will be useful,
+  11              	    but WITHOUT ANY WARRANTY; without even the implied warranty of
+  12              	    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  13              	    GNU General Public License for more details.
+  14              	
+  15              	    You should have received a copy of the GNU General Public License
+  16              	    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+  17              	*/
+  18              	
+  19              	/**
+  20              	 * @file    ARMv7-R/compilers/GCC/chcoreasm.S
+  21              	 * @brief   ARMv7-R port low level code.
+  22              	 *
+  23              	 * @addtogroup ARMV7R_GCC_CORE
+  24              	 * @{
+  25              	 */
+  26              	
+  27              	#define _FROM_ASM_
+  28              	#include "chlicense.h"
+   1              	/*
+   2              	    ChibiOS - Copyright (C) 2006-2026 Giovanni Di Sirio.
+   3              	
+   4              	    This file is part of ChibiOS.
+   5              	
+   6              	    ChibiOS is free software; you can redistribute it and/or modify
+   7              	    it under the terms of the GNU General Public License as published by
+   8              	    the Free Software Foundation version 3 of the License.
+   9              	
+  10              	    ChibiOS is distributed in the hope that it will be useful,
+  11              	    but WITHOUT ANY WARRANTY; without even the implied warranty of
+  12              	    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  13              	    GNU General Public License for more details.
+  14              	
+  15              	    You should have received a copy of the GNU General Public License
+  16              	    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+  17              	*/
+  18              	
+  19              	/**
+  20              	 * @file    chlicense.h
+  21              	 * @brief   License Module macros and structures.
+  22              	 *
+  23              	 * @addtogroup chibios_license
+  24              	 * @details This module contains all the definitions required for defining
+ARM GAS  /tmp/ccqhJp5d.s 			page 2
+
+
+  25              	 *          a licensing scheme for customers or public releases.
+  26              	 * @{
+  27              	 */
+  28              	
+  29              	#ifndef CHLICENSE_H
+  30              	#define CHLICENSE_H
+  31              	
+  32              	/*===========================================================================*/
+  33              	/* Module constants.                                                         */
+  34              	/*===========================================================================*/
+  35              	
+  36              	/**
+  37              	 * @name   Allowed Features Levels
+  38              	 * @{
+  39              	 */
+  40              	#define CH_FEATURES_BASIC                   0
+  41              	#define CH_FEATURES_INTERMEDIATE            1
+  42              	#define CH_FEATURES_FULL                    2
+  43              	/** @} */
+  44              	
+  45              	/**
+  46              	 * @name    Deployment Options
+  47              	 * @{
+  48              	 */
+  49              	#define CH_DEPLOY_UNLIMITED                -1
+  50              	#define CH_DEPLOY_NONE                      0
+  51              	/** @} */
+  52              	
+  53              	/**
+  54              	 * @name    Licensing Options
+  55              	 * @{
+  56              	 */
+  57              	#define CH_LICENSE_GPL                      0
+  58              	#define CH_LICENSE_GPL_EXCEPTION            1
+  59              	#define CH_LICENSE_COMMERCIAL_FREE          2
+  60              	#define CH_LICENSE_COMMERCIAL_DEV_1000      3
+  61              	#define CH_LICENSE_COMMERCIAL_DEV_5000      4
+  62              	#define CH_LICENSE_COMMERCIAL_FULL          5
+  63              	#define CH_LICENSE_COMMERCIAL_RUNTIME       6
+  64              	#define CH_LICENSE_PARTNER                  7
+  65              	/** @} */
+  66              	
+  67              	#include "chversion.h"
+   1              	/*
+  68              	#include "chcustomer.h"
+   1              	/*
+  69              	#if CH_LICENSE == CH_LICENSE_PARTNER
+  29              	#include "chconf.h"
+   1              	/*
+  30              	#include "crparams.h"
+   1              	/*
+  31              	
+  32              	#define FALSE 0
+  33              	#define TRUE 1
+  34              	
+  35              	#if !defined(__DOXYGEN__)
+  36              	
+ARM GAS  /tmp/ccqhJp5d.s 			page 3
+
+
+  37              	/*
+  38              	 * RTOS-specific context offset.
+  39              	 */
+  40              	#if defined(_CHIBIOS_RT_CONF_)
+  41              	#define CONTEXT_OFFSET  12
+  42              	
+  43              	#elif defined(_CHIBIOS_NIL_CONF_)
+  44              	#define CONTEXT_OFFSET  0
+  45              	
+  46              	#else
+  47              	#error "invalid chconf.h"
+  48              	#endif
+  49              	
+  50              	                .set    MODE_USR, 0x10
+  51              	                .set    MODE_FIQ, 0x11
+  52              	                .set    MODE_IRQ, 0x12
+  53              	                .set    MODE_SVC, 0x13
+  54              	                .set    MODE_ABT, 0x17
+  55              	                .set    MODE_UND, 0x1B
+  56              	                .set    MODE_SYS, 0x1F
+  57              	
+  58              	                .equ    I_BIT, 0x80
+  59              	                .equ    F_BIT, 0x40
+  60              	
+  61              	                .syntax unified
+  62              	                .cpu    cortex-r8
+  63              	                .arm
+  64              	                .text
+  65              	
+  66              	                .balign 16
+  67              	
+  68              	                .global __port_switch_arm
+  69              	__port_switch_arm:
+  70 0000 F04F2DE9 	                stmfd   sp!, {r4, r5, r6, r7, r8, r9, r10, r11, lr}
+  71              	#if CORTEX_USE_FPU == TRUE
+  72 0004 102AF1EE 	                vmrs    r2, fpscr
+  73 0008 04002DE9 	                stmfd   sp!, {r2}
+  74 000c 200B2DED 	                vstmdb  sp!, {d0-d15}
+  75              	#endif
+  76 0010 0CD081E5 	                str     sp, [r1, #CONTEXT_OFFSET]
+  77 0014 0CD090E5 	                ldr     sp, [r0, #CONTEXT_OFFSET]
+  78              	#if CORTEX_USE_FPU == TRUE
+  79 0018 200BBDEC 	                vldmia  sp!, {d0-d15}
+  80 001c 0400BDE8 	                ldmfd   sp!, {r2}
+  81 0020 102AE1EE 	                vmsr    fpscr, r2
+  82              	#endif
+  83 0024 F08FBDE8 	                ldmfd   sp!, {r4, r5, r6, r7, r8, r9, r10, r11, pc}
+  84              	
+  85              	/*
+  86              	 * Common IRQ entry point.
+  87              	 *
+  88              	 * The interrupt-controller specific code is centralized in
+  89              	 * __port_irq_dispatch(), which is expected to claim, dispatch and complete
+  90              	 * the current interrupt. It returns non-zero when preemption is required.
+  91              	 *
+  92              	 * System stack frame structure after a context switch in the interrupt handler:
+  93              	 *
+ARM GAS  /tmp/ccqhJp5d.s 			page 4
+
+
+  94              	 * High +------------+
+  95              	 *      |   LR_USR   | -+
+  96              	 *      |     r12    |  |
+  97              	 *      |     r3     |  |
+  98              	 *      |     r2     |  | External context: IRQ handler frame
+  99              	 *      |     r1     |  |
+ 100              	 *      |     r0     |  |
+ 101              	 *      |   LR_IRQ   |  |   (user code return address)
+ 102              	 *      |   PSR_USR  | -+   (user code status)
+ 103              	 *      |    ....    | <- chSchDoReschedule() stack frame
+ 104              	 *      |     LR     | -+   (system code return address)
+ 105              	 *      |     r11    |  |
+ 106              	 *      |     r10    |  |
+ 107              	 *      |     r9     |  |
+ 108              	 *      |     r8     |  | Internal context: chSysSwitch() frame
+ 109              	 *      |     r7     |  |
+ 110              	 *      |     r6     |  |
+ 111              	 *      |     r5     |  |
+ 112              	 * SP-> |     r4     | -+
+ 113              	 * Low  +------------+
+ 114              	 */
+ 115 0028 00F020E3 	                .balign 16
+ 115      00F020E3 
+ 116              	                .global Irq_Handler
+ 117              	Irq_Handler:
+ 118 0030 0F502DE9 	                stmfd   sp!, {r0-r3, r12, lr}
+ 119 0034 FEFFFFEB 	                bl      __port_irq_dispatch
+ 120 0038 000050E3 	                cmp     r0, #0
+ 121 003c 0F50BDE8 	                ldmfd   sp!, {r0-r3, r12, lr}
+ 122 0040 0E00000A 	                beq     .Lirq_return
+ 123              	
+ 124              	                /* Now the frame is created in the system stack, the IRQ
+ 125              	                   stack is empty.*/
+ 126 0044 9FF021E3 	                msr     CPSR_c, #(MODE_SYS | I_BIT)
+ 127 0048 0F502DE9 	                stmfd   sp!, {r0-r3, r12, lr}
+ 128 004c 92F021E3 	                msr     CPSR_c, #(MODE_IRQ | I_BIT)
+ 129 0050 00004FE1 	                mrs     r0, SPSR
+ 130 0054 0E10A0E1 	                mov     r1, lr
+ 131 0058 9FF021E3 	                msr     CPSR_c, #(MODE_SYS | I_BIT)
+ 132 005c 03002DE9 	                stmfd   sp!, {r0, r1}
+ 133              	
+ 134              	                /* Context switch.*/
+ 135              	#if CH_DBG_SYSTEM_STATE_CHECK
+ 136              	                bl      __dbg_check_lock
+ 137              	#endif
+ 138 0060 FEFFFFEB 	                bl      chSchDoPreemption
+ 139              	#if CH_DBG_SYSTEM_STATE_CHECK
+ 140              	                bl      __dbg_check_unlock
+ 141              	#endif
+ 142              	
+ 143              	                /* Re-establish the IRQ conditions again.*/
+ 144 0064 0300BDE8 	                ldmfd   sp!, {r0, r1}
+ 145 0068 92F021E3 	                msr     CPSR_c, #(MODE_IRQ | I_BIT)
+ 146 006c 00F06FE1 	                msr     SPSR_fsxc, r0
+ 147 0070 01E0A0E1 	                mov     lr, r1
+ 148 0074 9FF021E3 	                msr     CPSR_c, #(MODE_SYS | I_BIT)
+ 149 0078 0F50BDE8 	                ldmfd   sp!, {r0-r3, r12, lr}
+ARM GAS  /tmp/ccqhJp5d.s 			page 5
+
+
+ 150 007c 92F021E3 	                msr     CPSR_c, #(MODE_IRQ | I_BIT)
+ 151              	.Lirq_return:
+ 152 0080 04F05EE2 	                subs    pc, lr, #4
+ 153              	
+ 154              	/*
+ 155              	 * Threads trampoline code.
+ 156              	 */
+ 157 0084 00F020E3 	                .balign 16
+ 157      00F020E3 
+ 157      00F020E3 
+ 158              	                .globl  __port_thread_start
+ 159              	__port_thread_start:
+ 160              	#if CH_DBG_SYSTEM_STATE_CHECK
+ 161              	                bl      __dbg_check_unlock
+ 162              	#endif
+ 163 0090 1FF021E3 	                msr     CPSR_c, #MODE_SYS
+ 164 0094 0500A0E1 	                mov     r0, r5
+ 165 0098 0FE0A0E1 	                mov     lr, pc
+ 166 009c 14FF2FE1 	                bx      r4
+ 167 00a0 0000A0E3 	                mov     r0, #0              /* MSG_OK */
+ 168 00a4 FEFFFFEB 	                bl      chThdExit
+ 169 00a8 FEFFFFEA 	.zombies:       b       .zombies
+ARM GAS  /tmp/ccqhJp5d.s 			page 6
+
+
+DEFINED SYMBOLS
+../../../os/common/ports/ARMv7-R/compilers/GCC/chcoreasm.S:50     *ABS*:00000010 MODE_USR
+../../../os/common/ports/ARMv7-R/compilers/GCC/chcoreasm.S:51     *ABS*:00000011 MODE_FIQ
+../../../os/common/ports/ARMv7-R/compilers/GCC/chcoreasm.S:52     *ABS*:00000012 MODE_IRQ
+../../../os/common/ports/ARMv7-R/compilers/GCC/chcoreasm.S:53     *ABS*:00000013 MODE_SVC
+../../../os/common/ports/ARMv7-R/compilers/GCC/chcoreasm.S:54     *ABS*:00000017 MODE_ABT
+../../../os/common/ports/ARMv7-R/compilers/GCC/chcoreasm.S:55     *ABS*:0000001b MODE_UND
+../../../os/common/ports/ARMv7-R/compilers/GCC/chcoreasm.S:56     *ABS*:0000001f MODE_SYS
+../../../os/common/ports/ARMv7-R/compilers/GCC/chcoreasm.S:58     *ABS*:00000080 I_BIT
+../../../os/common/ports/ARMv7-R/compilers/GCC/chcoreasm.S:59     *ABS*:00000040 F_BIT
+../../../os/common/ports/ARMv7-R/compilers/GCC/chcoreasm.S:66     .text:00000000 $a
+../../../os/common/ports/ARMv7-R/compilers/GCC/chcoreasm.S:69     .text:00000000 __port_switch_arm
+../../../os/common/ports/ARMv7-R/compilers/GCC/chcoreasm.S:117    .text:00000030 Irq_Handler
+../../../os/common/ports/ARMv7-R/compilers/GCC/chcoreasm.S:159    .text:00000090 __port_thread_start
+../../../os/common/ports/ARMv7-R/compilers/GCC/chcoreasm.S:169    .text:000000a8 .zombies
+
+UNDEFINED SYMBOLS
+__port_irq_dispatch
+chSchDoPreemption
+chThdExit

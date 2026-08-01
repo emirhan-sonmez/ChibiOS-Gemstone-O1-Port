@@ -1,0 +1,546 @@
+ARM GAS  /tmp/ccEKoEtb.s 			page 1
+
+
+   1              	# 0 "../../../os/common/startup/ARMCRx/compilers/GCC/crt0_v7r.S"
+   2              	# 1 "/home/emirhan/Documents/gemstone/chibiOS-port/ChibiOS/demos/various/RT-ARMCR8-GENERIC//"
+   1              	...
+   0              	
+   0              	
+   1              	/*
+   2              	    ChibiOS - Copyright (C) 2006-2026 Giovanni Di Sirio.
+   3              	
+   4              	    Licensed under the Apache License, Version 2.0 (the "License");
+   5              	    you may not use this file except in compliance with the License.
+   6              	    You may obtain a copy of the License at
+   7              	
+   8              	        http://www.apache.org/licenses/LICENSE-2.0
+   9              	
+  10              	    Unless required by applicable law or agreed to in writing, software
+  11              	    distributed under the License is distributed on an "AS IS" BASIS,
+  12              	    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  13              	    See the License for the specific language governing permissions and
+  14              	    limitations under the License.
+  15              	*/
+  16              	
+  17              	/**
+  18              	 * @file    crt0_v7r.S
+  19              	 * @brief   Generic ARMv7-R startup file for ChibiOS.
+  20              	 *
+  21              	 * @addtogroup ARMCRx_GCC_STARTUP_V7R
+  22              	 * @{
+  23              	 */
+  24              	
+  25              	/*===========================================================================*/
+  26              	/* Module constants.                                                         */
+  27              	/*===========================================================================*/
+  28              	
+  29              	#if !defined(FALSE) || defined(__DOXYGEN__)
+  30              	#define FALSE                               0
+  31              	#endif
+  32              	
+  33              	#if !defined(TRUE) || defined(__DOXYGEN__)
+  34              	#define TRUE                                1
+  35              	#endif
+  36              	
+  37              	#define MODE_USR                            0x10
+  38              	#define MODE_FIQ                            0x11
+  39              	#define MODE_IRQ                            0x12
+  40              	#define MODE_SVC                            0x13
+  41              	#define MODE_ABT                            0x17
+  42              	#define MODE_UND                            0x1B
+  43              	#define MODE_SYS                            0x1F
+  44              	
+  45              	#define I_BIT                               0x80
+  46              	#define F_BIT                               0x40
+  47              	
+  48              	#define CPACR_CP10_CP11_FULL_ACCESS         0x00F00000
+  49              	#define FPEXC_EN                            (1 << 30)
+  50              	
+  51              	/*===========================================================================*/
+  52              	/* Module pre-compile time settings.                                         */
+ARM GAS  /tmp/ccEKoEtb.s 			page 2
+
+
+  53              	/*===========================================================================*/
+  54              	
+  55              	/**
+  56              	 * @brief   VBAR special register initialization.
+  57              	 * @details VBAR is initialized to point to the vectors table.
+  58              	 */
+  59              	#if !defined(CRT0_VBAR_INIT) || defined(__DOXYGEN__)
+  60              	#define CRT0_VBAR_INIT                      TRUE
+  61              	#endif
+  62              	
+  63              	/**
+  64              	 * @brief   Core initialization switch.
+  65              	 */
+  66              	#if !defined(CRT0_INIT_CORE) || defined(__DOXYGEN__)
+  67              	#define CRT0_INIT_CORE                      TRUE
+  68              	#endif
+  69              	
+  70              	/**
+  71              	 * @brief   FPU initialization switch.
+  72              	 */
+  73              	#if !defined(CRT0_INIT_FPU) || defined(__DOXYGEN__)
+  74              	#if defined(CORTEX_USE_FPU) || defined(__DOXYGEN__)
+  75              	#define CRT0_INIT_FPU                       CORTEX_USE_FPU
+  76              	#else
+  77              	#define CRT0_INIT_FPU                       FALSE
+  78              	#endif
+  79              	#endif
+  80              	
+  81              	/**
+  82              	 * @brief   FPU FPSCR register initialization value.
+  83              	 * @note    Only used if @p CRT0_INIT_FPU is equal to @p TRUE.
+  84              	 */
+  85              	#if !defined(CRT0_FPSCR_INIT) || defined(__DOXYGEN__)
+  86              	#define CRT0_FPSCR_INIT                     0
+  87              	#endif
+  88              	
+  89              	/**
+  90              	 * @brief   Stack segments fill pattern.
+  91              	 */
+  92              	#if !defined(CRT0_STACKS_FILL_PATTERN) || defined(__DOXYGEN__)
+  93              	#define CRT0_STACKS_FILL_PATTERN            0x55555555
+  94              	#endif
+  95              	
+  96              	/**
+  97              	 * @brief   Stack segments initialization switch.
+  98              	 */
+  99              	#if !defined(CRT0_INIT_STACKS) || defined(__DOXYGEN__)
+ 100              	#define CRT0_INIT_STACKS                    TRUE
+ 101              	#endif
+ 102              	
+ 103              	/**
+ 104              	 * @brief   Vectors table initialization.
+ 105              	 * @details Vectors are copied in RAM on startup.
+ 106              	 */
+ 107              	#if !defined(CRT0_INIT_VECTORS) || defined(__DOXYGEN__)
+ 108              	#define CRT0_INIT_VECTORS                   FALSE
+ 109              	#endif
+ARM GAS  /tmp/ccEKoEtb.s 			page 3
+
+
+ 110              	
+ 111              	/**
+ 112              	 * @brief   DATA segment initialization switch.
+ 113              	 */
+ 114              	#if !defined(CRT0_INIT_DATA) || defined(__DOXYGEN__)
+ 115              	#define CRT0_INIT_DATA                      TRUE
+ 116              	#endif
+ 117              	
+ 118              	/**
+ 119              	 * @brief   BSS segment initialization switch.
+ 120              	 */
+ 121              	#if !defined(CRT0_INIT_BSS) || defined(__DOXYGEN__)
+ 122              	#define CRT0_INIT_BSS                       TRUE
+ 123              	#endif
+ 124              	
+ 125              	/**
+ 126              	 * @brief   RAM areas initialization switch.
+ 127              	 */
+ 128              	#if !defined(CRT0_INIT_RAM_AREAS) || defined(__DOXYGEN__)
+ 129              	#define CRT0_INIT_RAM_AREAS                 TRUE
+ 130              	#endif
+ 131              	
+ 132              	/**
+ 133              	 * @brief   Constructors invocation switch.
+ 134              	 */
+ 135              	#if !defined(CRT0_CALL_CONSTRUCTORS) || defined(__DOXYGEN__)
+ 136              	#define CRT0_CALL_CONSTRUCTORS              TRUE
+ 137              	#endif
+ 138              	
+ 139              	/**
+ 140              	 * @brief   Destructors invocation switch.
+ 141              	 */
+ 142              	#if !defined(CRT0_CALL_DESTRUCTORS) || defined(__DOXYGEN__)
+ 143              	#define CRT0_CALL_DESTRUCTORS               TRUE
+ 144              	#endif
+ 145              	
+ 146              	/**
+ 147              	 * @brief   Number of extra cores.
+ 148              	 */
+ 149              	#if !defined(CRT0_EXTRA_CORES_NUMBER) || defined(__DOXYGEN__)
+ 150              	#define CRT0_EXTRA_CORES_NUMBER             0
+ 151              	#endif
+ 152              	
+ 153              	/*===========================================================================*/
+ 154              	/* Code section.                                                             */
+ 155              	/*===========================================================================*/
+ 156              	
+ 157              	#if !defined(__DOXYGEN__)
+ 158              	
+ 159              	                .syntax unified
+ 160              	                .cpu    cortex-r8
+ 161              	#if CRT0_INIT_FPU == TRUE
+ 162              	                .fpu    vfpv3-d16
+ 163              	#endif
+ 164              	                .arm
+ 165              	                .text
+ 166              	
+ARM GAS  /tmp/ccEKoEtb.s 			page 4
+
+
+ 167              	                .macro  CRT0_SET_VBAR_SYMBOL source
+ 168              	#if CRT0_VBAR_INIT == TRUE
+ 169              	                ldr     r0, =\source
+ 170              	                mcr     p15, 0, r0, c12, c0, 0
+ 171              	                dsb
+ 172              	                isb
+ 173              	#endif
+ 174              	                .endm
+ 175              	
+ 176              	                .macro  CRT0_SET_VBAR_REG reg
+ 177              	#if CRT0_VBAR_INIT == TRUE
+ 178              	                mcr     p15, 0, \reg, c12, c0, 0
+ 179              	                dsb
+ 180              	                isb
+ 181              	#endif
+ 182              	                .endm
+ 183              	
+ 184              	                .macro  CRT0_SETUP_FPU
+ 185              	#if CRT0_INIT_FPU == TRUE
+ 186              	                mrc     p15, 0, r0, c1, c0, 2
+ 187              	                ldr     r1, =CPACR_CP10_CP11_FULL_ACCESS
+ 188              	                orr     r0, r0, r1
+ 189              	                mcr     p15, 0, r0, c1, c0, 2
+ 190              	                isb
+ 191              	
+ 192              	                vmrs    r0, fpexc
+ 193              	                ldr     r1, =FPEXC_EN
+ 194              	                orr     r0, r0, r1
+ 195              	                vmsr    fpexc, r0
+ 196              	
+ 197              	                ldr     r0, =CRT0_FPSCR_INIT
+ 198              	                vmsr    fpscr, r0
+ 199              	#endif
+ 200              	                .endm
+ 201              	
+ 202              	                .macro  CRT0_COPY_VECTORS
+ 203              	#if CRT0_INIT_VECTORS == TRUE
+ 204              	                ldr     r1, =__textvectors_base__
+ 205              	                ldr     r2, =__vectors_base__
+ 206              	                ldr     r3, =__vectors_end__
+ 207              	                mov     r4, r2
+ 208              	1:
+ 209              	                cmp     r2, r3
+ 210              	                bhs     2f
+ 211              	                ldr     r0, [r1], #4
+ 212              	                str     r0, [r2], #4
+ 213              	                b       1b
+ 214              	2:
+ 215              	                CRT0_SET_VBAR_REG r4
+ 216              	#endif
+ 217              	                .endm
+ 218              	
+ 219              	                .macro  CRT0_INIT_MODE_STACKS prefix
+ 220              	                cpsid   if
+ 221              	
+ 222              	                ldr     r0, =__\prefix\()und_stack_end__
+ 223              	                msr     CPSR_c, #(MODE_UND | I_BIT | F_BIT)
+ARM GAS  /tmp/ccEKoEtb.s 			page 5
+
+
+ 224              	                mov     sp, r0
+ 225              	
+ 226              	                ldr     r0, =__\prefix\()abt_stack_end__
+ 227              	                msr     CPSR_c, #(MODE_ABT | I_BIT | F_BIT)
+ 228              	                mov     sp, r0
+ 229              	
+ 230              	                ldr     r0, =__\prefix\()fiq_stack_end__
+ 231              	                msr     CPSR_c, #(MODE_FIQ | I_BIT | F_BIT)
+ 232              	                mov     sp, r0
+ 233              	
+ 234              	                ldr     r0, =__\prefix\()irq_stack_end__
+ 235              	                msr     CPSR_c, #(MODE_IRQ | I_BIT | F_BIT)
+ 236              	                mov     sp, r0
+ 237              	
+ 238              	                ldr     r0, =__\prefix\()svc_stack_end__
+ 239              	                msr     CPSR_c, #(MODE_SVC | I_BIT | F_BIT)
+ 240              	                mov     sp, r0
+ 241              	
+ 242              	                ldr     r0, =__\prefix\()sys_stack_end__
+ 243              	                msr     CPSR_c, #(MODE_SYS | I_BIT | F_BIT)
+ 244              	                mov     sp, r0
+ 245              	                .endm
+ 246              	
+ 247              	                .macro  CRT0_FILL_STACK base, end
+ 248              	                ldr     r1, =\base
+ 249              	                ldr     r2, =\end
+ 250              	1:
+ 251              	                cmp     r1, r2
+ 252              	                bhs     2f
+ 253              	                str     r0, [r1], #4
+ 254              	                b       1b
+ 255              	2:
+ 256              	                .endm
+ 257              	
+ 258              	                .macro  CRT0_INIT_STACK_AREAS prefix
+ 259              	#if CRT0_INIT_STACKS == TRUE
+ 260              	                ldr     r0, =CRT0_STACKS_FILL_PATTERN
+ 261              	                CRT0_FILL_STACK __\prefix\()und_stack_base__, __\prefix\()und_stack_end__
+ 262              	                CRT0_FILL_STACK __\prefix\()abt_stack_base__, __\prefix\()abt_stack_end__
+ 263              	                CRT0_FILL_STACK __\prefix\()fiq_stack_base__, __\prefix\()fiq_stack_end__
+ 264              	                CRT0_FILL_STACK __\prefix\()irq_stack_base__, __\prefix\()irq_stack_end__
+ 265              	                CRT0_FILL_STACK __\prefix\()svc_stack_base__, __\prefix\()svc_stack_end__
+ 266              	                CRT0_FILL_STACK __\prefix\()sys_stack_base__, __\prefix\()sys_stack_end__
+ 267              	#endif
+ 268              	                .endm
+ 269              	
+ 270              	/*
+ 271              	 * CRT0 entry point.
+ 272              	 */
+ 273              	                .align  4
+ 274              	                .global _crt0_entry
+ 275              	_crt0_entry:
+ 276              	                CRT0_INIT_MODE_STACKS
+ 276 0000 C0000CF1 	>  cpsid if
+ 276              	> 
+ 276 0004 9C019FE5 	>  ldr r0,=__und_stack_end__
+ 276 0008 DBF021E3 	>  msr CPSR_c,#(0x1B|0x80|0x40)
+ARM GAS  /tmp/ccEKoEtb.s 			page 6
+
+
+ 276 000c 00D0A0E1 	>  mov sp,r0
+ 276              	> 
+ 276 0010 94019FE5 	>  ldr r0,=__abt_stack_end__
+ 276 0014 D7F021E3 	>  msr CPSR_c,#(0x17|0x80|0x40)
+ 276 0018 00D0A0E1 	>  mov sp,r0
+ 276              	> 
+ 276 001c 8C019FE5 	>  ldr r0,=__fiq_stack_end__
+ 276 0020 D1F021E3 	>  msr CPSR_c,#(0x11|0x80|0x40)
+ 276 0024 00D0A0E1 	>  mov sp,r0
+ 276              	> 
+ 276 0028 84019FE5 	>  ldr r0,=__irq_stack_end__
+ 276 002c D2F021E3 	>  msr CPSR_c,#(0x12|0x80|0x40)
+ 276 0030 00D0A0E1 	>  mov sp,r0
+ 276              	> 
+ 276 0034 7C019FE5 	>  ldr r0,=__svc_stack_end__
+ 276 0038 D3F021E3 	>  msr CPSR_c,#(0x13|0x80|0x40)
+ 276 003c 00D0A0E1 	>  mov sp,r0
+ 276              	> 
+ 276 0040 74019FE5 	>  ldr r0,=__sys_stack_end__
+ 276 0044 DFF021E3 	>  msr CPSR_c,#(0x1F|0x80|0x40)
+ 276 0048 00D0A0E1 	>  mov sp,r0
+ 277              	                CRT0_SET_VBAR_SYMBOL _vectors
+ 277              	> 
+ 277 004c 6C019FE5 	>  ldr r0,=_vectors
+ 277 0050 100F0CEE 	>  mcr p15,0,r0,c12,c0,0
+ 277 0054 4FF07FF5 	>  dsb
+ 277 0058 6FF07FF5 	>  isb
+ 277              	> 
+ 278              	                CRT0_SETUP_FPU
+ 278              	> 
+ 278 005c 500F11EE 	>  mrc p15,0,r0,c1,c0,2
+ 278 0060 0F16A0E3 	>  ldr r1,=0x00F00000
+ 278 0064 010080E1 	>  orr r0,r0,r1
+ 278 0068 500F01EE 	>  mcr p15,0,r0,c1,c0,2
+ 278 006c 6FF07FF5 	>  isb
+ 278              	> 
+ 278 0070 100AF8EE 	>  vmrs r0,fpexc
+ 278 0074 0111A0E3 	>  ldr r1,=(1<<30)
+ 278 0078 010080E1 	>  orr r0,r0,r1
+ 278 007c 100AE8EE 	>  vmsr fpexc,r0
+ 278              	> 
+ 278 0080 0000A0E3 	>  ldr r0,=0
+ 278 0084 100AE1EE 	>  vmsr fpscr,r0
+ 278              	> 
+ 279              	
+ 280              	#if CRT0_INIT_CORE == TRUE
+ 281 0088 FEFFFFEB 	                bl      __cpu_init
+ 282              	#endif
+ 283              	
+ 284 008c FEFFFFEB 	                bl      __early_init
+ 285              	
+ 286              	                CRT0_INIT_STACK_AREAS
+ 286              	> 
+ 286 0090 2C019FE5 	>  ldr r0,=0x55555555
+ 286              	>  CRT0_FILL_STACK __und_stack_base__,__und_stack_end__
+ 286 0094 2C119FE5 	>>  ldr r1,=__und_stack_base__
+ 286 0098 08219FE5 	>>  ldr r2,=__und_stack_end__
+ARM GAS  /tmp/ccEKoEtb.s 			page 7
+
+
+ 286              	>> 1:
+ 286 009c 020051E1 	>>  cmp r1,r2
+ 286 00a0 0100002A 	>>  bhs 2f
+ 286 00a4 040081E4 	>>  str r0,[r1],#4
+ 286 00a8 FBFFFFEA 	>>  b 1b
+ 286              	>> 2:
+ 286              	>  CRT0_FILL_STACK __abt_stack_base__,__abt_stack_end__
+ 286 00ac 18119FE5 	>>  ldr r1,=__abt_stack_base__
+ 286 00b0 F4209FE5 	>>  ldr r2,=__abt_stack_end__
+ 286              	>> 1:
+ 286 00b4 020051E1 	>>  cmp r1,r2
+ 286 00b8 0100002A 	>>  bhs 2f
+ 286 00bc 040081E4 	>>  str r0,[r1],#4
+ 286 00c0 FBFFFFEA 	>>  b 1b
+ 286              	>> 2:
+ 286              	>  CRT0_FILL_STACK __fiq_stack_base__,__fiq_stack_end__
+ 286 00c4 04119FE5 	>>  ldr r1,=__fiq_stack_base__
+ 286 00c8 E0209FE5 	>>  ldr r2,=__fiq_stack_end__
+ 286              	>> 1:
+ 286 00cc 020051E1 	>>  cmp r1,r2
+ 286 00d0 0100002A 	>>  bhs 2f
+ 286 00d4 040081E4 	>>  str r0,[r1],#4
+ 286 00d8 FBFFFFEA 	>>  b 1b
+ 286              	>> 2:
+ 286              	>  CRT0_FILL_STACK __irq_stack_base__,__irq_stack_end__
+ 286 00dc F0109FE5 	>>  ldr r1,=__irq_stack_base__
+ 286 00e0 CC209FE5 	>>  ldr r2,=__irq_stack_end__
+ 286              	>> 1:
+ 286 00e4 020051E1 	>>  cmp r1,r2
+ 286 00e8 0100002A 	>>  bhs 2f
+ 286 00ec 040081E4 	>>  str r0,[r1],#4
+ 286 00f0 FBFFFFEA 	>>  b 1b
+ 286              	>> 2:
+ 286              	>  CRT0_FILL_STACK __svc_stack_base__,__svc_stack_end__
+ 286 00f4 DC109FE5 	>>  ldr r1,=__svc_stack_base__
+ 286 00f8 B8209FE5 	>>  ldr r2,=__svc_stack_end__
+ 286              	>> 1:
+ 286 00fc 020051E1 	>>  cmp r1,r2
+ 286 0100 0100002A 	>>  bhs 2f
+ 286 0104 040081E4 	>>  str r0,[r1],#4
+ 286 0108 FBFFFFEA 	>>  b 1b
+ 286              	>> 2:
+ 286              	>  CRT0_FILL_STACK __sys_stack_base__,__sys_stack_end__
+ 286 010c C8109FE5 	>>  ldr r1,=__sys_stack_base__
+ 286 0110 A4209FE5 	>>  ldr r2,=__sys_stack_end__
+ 286              	>> 1:
+ 286 0114 020051E1 	>>  cmp r1,r2
+ 286 0118 0100002A 	>>  bhs 2f
+ 286 011c 040081E4 	>>  str r0,[r1],#4
+ 286 0120 FBFFFFEA 	>>  b 1b
+ 286              	>> 2:
+ 286              	> 
+ 287              	
+ 288              	                CRT0_COPY_VECTORS
+ 289              	
+ 290              	#if CRT0_INIT_DATA == TRUE
+ 291 0124 B4109FE5 	                ldr     r1, =__textdata_base__
+ARM GAS  /tmp/ccEKoEtb.s 			page 8
+
+
+ 292 0128 B4209FE5 	                ldr     r2, =__data_base__
+ 293 012c B4309FE5 	                ldr     r3, =__data_end__
+ 294              	1:
+ 295 0130 030052E1 	                cmp     r2, r3
+ 296 0134 0200002A 	                bhs     2f
+ 297 0138 040091E4 	                ldr     r0, [r1], #4
+ 298 013c 040082E4 	                str     r0, [r2], #4
+ 299 0140 FAFFFFEA 	                b       1b
+ 300              	2:
+ 301              	#endif
+ 302              	
+ 303              	#if CRT0_INIT_BSS == TRUE
+ 304 0144 0000A0E3 	                mov     r0, #0
+ 305 0148 9C109FE5 	                ldr     r1, =__bss_base__
+ 306 014c 9C209FE5 	                ldr     r2, =__bss_end__
+ 307              	1:
+ 308 0150 020051E1 	                cmp     r1, r2
+ 309 0154 0100002A 	                bhs     2f
+ 310 0158 040081E4 	                str     r0, [r1], #4
+ 311 015c FBFFFFEA 	                b       1b
+ 312              	2:
+ 313              	#endif
+ 314              	
+ 315              	#if CRT0_INIT_RAM_AREAS == TRUE
+ 316 0160 FEFFFFEB 	                bl      __init_ram_areas
+ 317              	#endif
+ 318              	
+ 319 0164 FEFFFFEB 	                bl      __late_init
+ 320              	
+ 321              	#if CRT0_CALL_CONSTRUCTORS == TRUE
+ 322 0168 84409FE5 	                ldr     r4, =__init_array_base__
+ 323 016c 84509FE5 	                ldr     r5, =__init_array_end__
+ 324              	1:
+ 325 0170 050054E1 	                cmp     r4, r5
+ 326 0174 0200002A 	                bhs     2f
+ 327 0178 041094E4 	                ldr     r1, [r4], #4
+ 328 017c 31FF2FE1 	                blx     r1
+ 329 0180 FAFFFFEA 	                b       1b
+ 330              	2:
+ 331              	#endif
+ 332              	
+ 333 0184 FEFFFFEB 	                bl      main
+ 334              	
+ 335              	#if CRT0_CALL_DESTRUCTORS == TRUE
+ 336 0188 6C409FE5 	                ldr     r4, =__fini_array_base__
+ 337 018c 6C509FE5 	                ldr     r5, =__fini_array_end__
+ 338              	1:
+ 339 0190 050054E1 	                cmp     r4, r5
+ 340 0194 0200002A 	                bhs     2f
+ 341 0198 041094E4 	                ldr     r1, [r4], #4
+ 342 019c 31FF2FE1 	                blx     r1
+ 343 01a0 FAFFFFEA 	                b       1b
+ 344              	2:
+ 345              	#endif
+ 346              	
+ 347 01a4 FEFFFFEA 	                b       __default_exit
+ 348              	
+ARM GAS  /tmp/ccEKoEtb.s 			page 9
+
+
+ 349              	                .macro  CRT0_EXTRA_CORE_ENTRY core
+ 350              	                .align  4
+ 351              	                .global _crt0_c\core\()_entry
+ 352              	_crt0_c\core\()_entry:
+ 353              	                CRT0_INIT_MODE_STACKS c\core\()_
+ 354              	                CRT0_SET_VBAR_SYMBOL _vectors
+ 355              	                CRT0_SETUP_FPU
+ 356              	
+ 357              	#if CRT0_INIT_CORE == TRUE
+ 358              	                bl      __c\core\()_cpu_init
+ 359              	#endif
+ 360              	
+ 361              	                bl      __c\core\()_early_init
+ 362              	
+ 363              	                CRT0_INIT_STACK_AREAS c\core\()_
+ 364              	
+ 365              	                bl      __c\core\()_late_init
+ 366              	
+ 367              	                bl      c\core\()_main
+ 368              	
+ 369              	                b       __c\core\()_default_exit
+ 370 01a8 00000000 	                .endm
+ 370      00000000 
+ 370      00000000 
+ 370      00000000 
+ 370      00000000 
+ARM GAS  /tmp/ccEKoEtb.s 			page 10
+
+
+DEFINED SYMBOLS
+../../../os/common/startup/ARMCRx/compilers/GCC/crt0_v7r.S:273    .text:00000000 $a
+../../../os/common/startup/ARMCRx/compilers/GCC/crt0_v7r.S:275    .text:00000000 _crt0_entry
+../../../os/common/startup/ARMCRx/compilers/GCC/crt0_v7r.S:370    .text:000001a8 $d
+
+UNDEFINED SYMBOLS
+__und_stack_end__
+__abt_stack_end__
+__fiq_stack_end__
+__irq_stack_end__
+__svc_stack_end__
+__sys_stack_end__
+_vectors
+__cpu_init
+__early_init
+__und_stack_base__
+__abt_stack_base__
+__fiq_stack_base__
+__irq_stack_base__
+__svc_stack_base__
+__sys_stack_base__
+__textdata_base__
+__data_base__
+__data_end__
+__bss_base__
+__bss_end__
+__init_ram_areas
+__late_init
+__init_array_base__
+__init_array_end__
+main
+__fini_array_base__
+__fini_array_end__
+__default_exit

@@ -79,6 +79,39 @@
 #define AM67_TIMER0_IRQ         28U
 
 /*
+ * MAILBOX0 cluster 1 (MAILBOX0_REGS1), the A53 <-> MCU_R5F doorbell.
+ *
+ * This is the channel the Linux k3_r5_remoteproc driver uses to ask the R5F to
+ * shut down: `mboxes = <0x11 0x12>` on the r5f@79000000 node resolves to
+ * mailbox@29010000 / chan mbox-mcu-r5-0. Without a handler on this side,
+ * `remoteproc stop` blocks ~25 s and fails with -EBUSY
+ * ("k3_r5_rproc_stop: timeout waiting for rproc completion event"), which is
+ * why loading new firmware needed a full power cycle.
+ *
+ * FIFO direction is stated from LINUX's point of view in the device tree, so it
+ * inverts here: DT `ti,mbox-tx = <1 0 0>` means Linux transmits on FIFO 1, so
+ * the R5F RECEIVES on FIFO 1; DT `ti,mbox-rx = <0 0 0>` means the R5F
+ * TRANSMITS on FIFO 0. Getting this backwards yields a mailbox that never
+ * interrupts, which looks exactly like having no driver at all.
+ *
+ * The user index is not discoverable from the device tree -- Linux only
+ * declares its own (0). From the J722S TRM Table 4-138:
+ *   ..._CLUSTER_1_mailbox_cluster_pend_0 -> GICSS0_spi_109              (Linux, user 0)
+ *   ..._CLUSTER_1_mailbox_cluster_pend_2 -> MCU_R5FSS0_CORE0_cpu0_intr_241  (us, user 2)
+ *   ..._CLUSTER_1_mailbox_cluster_pend_3 -> WKUP_R5FSS0_CORE0_intr_241
+ * Cross-checked two ways: the DT parent interrupt <0 0x4d 4> is GIC SPI 77,
+ * and 77 + 32 = INTID 109 = the TRM's GICSS0_spi_109, which confirms
+ * pend_N <-> user N; and the TRM's MCU_TIMER0 -> cpu0_intr_28 matches
+ * AM67_TIMER0_IRQ above, which is hardware-verified, confirming that
+ * cpu0_intr_N is the VIM input number.
+ */
+#define AM67_MAILBOX_BASE       0x29010000U
+#define AM67_MAILBOX_IRQ        241U
+#define AM67_MAILBOX_USER       2U      /* our interrupt user index          */
+#define AM67_MAILBOX_RX_FIFO    1U      /* Linux writes here, we read it     */
+#define AM67_MAILBOX_TX_FIFO    0U      /* we write here, Linux reads it     */
+
+/*
  * EPWM0 (eHRPWM), first PWM output on EHRPWM0_A -> Gemstone 40-pin header
  * pin 29 (GPIO5 pad, muxed to EHRPWM0_A by the Linux DT overlay
  * k3-am67a-t3-gem-o1-pwm-epwm0-gpio5.dtbo). The DT owns pinmux + the module

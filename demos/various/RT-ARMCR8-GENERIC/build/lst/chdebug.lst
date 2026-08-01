@@ -1,0 +1,264 @@
+ARM GAS  /tmp/ccb3MHaQ.s 			page 1
+
+
+   1              		.cpu cortex-r8
+   2              		.arch armv7-r
+   3              		.fpu vfpv3-d16
+   4              		.arch_extension idiv
+   5              		.eabi_attribute 28, 1
+   6              		.eabi_attribute 20, 1
+   7              		.eabi_attribute 21, 1
+   8              		.eabi_attribute 23, 3
+   9              		.eabi_attribute 24, 1
+  10              		.eabi_attribute 25, 1
+  11              		.eabi_attribute 26, 1
+  12              		.eabi_attribute 30, 2
+  13              		.eabi_attribute 34, 1
+  14              		.eabi_attribute 18, 4
+  15              		.file	"chdebug.c"
+  16              		.text
+  17              	.Ltext0:
+  18              		.cfi_sections	.debug_frame
+  19              		.file 1 "../../../os/rt/src/chdebug.c"
+  20              	.Letext0:
+  21              		.section	.debug_info,"",%progbits
+  22              	.Ldebug_info0:
+  23 0000 76000000 		.4byte	0x76
+  24 0004 0500     		.2byte	0x5
+  25 0006 01       		.byte	0x1
+  26 0007 04       		.byte	0x4
+  27 0008 00000000 		.4byte	.Ldebug_abbrev0
+  28 000c 02       		.uleb128 0x2
+  29 000d 0E000000 		.4byte	.LASF12
+  30 0011 1D       		.byte	0x1d
+  31 0012 D0010000 		.4byte	.LASF13
+  32 0016 62010000 		.4byte	.LASF14
+  33 001a 00000000 		.4byte	.Ldebug_line0
+  34 001e 03       		.uleb128 0x3
+  35 001f 04       		.byte	0x4
+  36 0020 05       		.byte	0x5
+  37 0021 696E7400 		.ascii	"int\000"
+  38 0025 01       		.uleb128 0x1
+  39 0026 04       		.byte	0x4
+  40 0027 07       		.byte	0x7
+  41 0028 ED000000 		.4byte	.LASF0
+  42 002c 01       		.uleb128 0x1
+  43 002d 08       		.byte	0x8
+  44 002e 05       		.byte	0x5
+  45 002f 00000000 		.4byte	.LASF1
+  46 0033 01       		.uleb128 0x1
+  47 0034 08       		.byte	0x8
+  48 0035 04       		.byte	0x4
+  49 0036 C4010000 		.4byte	.LASF2
+  50 003a 01       		.uleb128 0x1
+  51 003b 01       		.byte	0x1
+  52 003c 06       		.byte	0x6
+  53 003d B8010000 		.4byte	.LASF3
+  54 0041 01       		.uleb128 0x1
+  55 0042 01       		.byte	0x1
+  56 0043 08       		.byte	0x8
+  57 0044 36010000 		.4byte	.LASF4
+ARM GAS  /tmp/ccb3MHaQ.s 			page 2
+
+
+  58 0048 01       		.uleb128 0x1
+  59 0049 02       		.byte	0x2
+  60 004a 05       		.byte	0x5
+  61 004b 52010000 		.4byte	.LASF5
+  62 004f 01       		.uleb128 0x1
+  63 0050 02       		.byte	0x2
+  64 0051 07       		.byte	0x7
+  65 0052 23010000 		.4byte	.LASF6
+  66 0056 01       		.uleb128 0x1
+  67 0057 04       		.byte	0x4
+  68 0058 05       		.byte	0x5
+  69 0059 49010000 		.4byte	.LASF7
+  70 005d 01       		.uleb128 0x1
+  71 005e 04       		.byte	0x4
+  72 005f 07       		.byte	0x7
+  73 0060 FA000000 		.4byte	.LASF8
+  74 0064 01       		.uleb128 0x1
+  75 0065 08       		.byte	0x8
+  76 0066 07       		.byte	0x7
+  77 0067 0C010000 		.4byte	.LASF9
+  78 006b 01       		.uleb128 0x1
+  79 006c 01       		.byte	0x1
+  80 006d 08       		.byte	0x8
+  81 006e 44010000 		.4byte	.LASF10
+  82 0072 01       		.uleb128 0x1
+  83 0073 01       		.byte	0x1
+  84 0074 02       		.byte	0x2
+  85 0075 5C010000 		.4byte	.LASF11
+  86 0079 00       		.byte	0
+  87              		.section	.debug_abbrev,"",%progbits
+  88              	.Ldebug_abbrev0:
+  89 0000 01       		.uleb128 0x1
+  90 0001 24       		.uleb128 0x24
+  91 0002 00       		.byte	0
+  92 0003 0B       		.uleb128 0xb
+  93 0004 0B       		.uleb128 0xb
+  94 0005 3E       		.uleb128 0x3e
+  95 0006 0B       		.uleb128 0xb
+  96 0007 03       		.uleb128 0x3
+  97 0008 0E       		.uleb128 0xe
+  98 0009 00       		.byte	0
+  99 000a 00       		.byte	0
+ 100 000b 02       		.uleb128 0x2
+ 101 000c 11       		.uleb128 0x11
+ 102 000d 01       		.byte	0x1
+ 103 000e 25       		.uleb128 0x25
+ 104 000f 0E       		.uleb128 0xe
+ 105 0010 13       		.uleb128 0x13
+ 106 0011 0B       		.uleb128 0xb
+ 107 0012 03       		.uleb128 0x3
+ 108 0013 0E       		.uleb128 0xe
+ 109 0014 1B       		.uleb128 0x1b
+ 110 0015 0E       		.uleb128 0xe
+ 111 0016 10       		.uleb128 0x10
+ 112 0017 17       		.uleb128 0x17
+ 113 0018 00       		.byte	0
+ 114 0019 00       		.byte	0
+ARM GAS  /tmp/ccb3MHaQ.s 			page 3
+
+
+ 115 001a 03       		.uleb128 0x3
+ 116 001b 24       		.uleb128 0x24
+ 117 001c 00       		.byte	0
+ 118 001d 0B       		.uleb128 0xb
+ 119 001e 0B       		.uleb128 0xb
+ 120 001f 3E       		.uleb128 0x3e
+ 121 0020 0B       		.uleb128 0xb
+ 122 0021 03       		.uleb128 0x3
+ 123 0022 08       		.uleb128 0x8
+ 124 0023 00       		.byte	0
+ 125 0024 00       		.byte	0
+ 126 0025 00       		.byte	0
+ 127              		.section	.debug_aranges,"",%progbits
+ 128 0000 14000000 		.4byte	0x14
+ 129 0004 0200     		.2byte	0x2
+ 130 0006 00000000 		.4byte	.Ldebug_info0
+ 131 000a 04       		.byte	0x4
+ 132 000b 00       		.byte	0
+ 133 000c 0000     		.2byte	0
+ 134 000e 0000     		.2byte	0
+ 135 0010 00000000 		.4byte	0
+ 136 0014 00000000 		.4byte	0
+ 137              		.section	.debug_line,"",%progbits
+ 138              	.Ldebug_line0:
+ 139 0000 39000000 		.section	.debug_str,"MS",%progbits,1
+ 139      03003300 
+ 139      00000201 
+ 139      FB0E0D00 
+ 139      01010101 
+ 140              	.LASF1:
+ 141 0000 6C6F6E67 		.ascii	"long long int\000"
+ 141      206C6F6E 
+ 141      6720696E 
+ 141      7400
+ 142              	.LASF12:
+ 143 000e 474E5520 		.ascii	"GNU C17 13.3.1 20240614 -mcpu=cortex-r8 -mfloat-abi"
+ 143      43313720 
+ 143      31332E33 
+ 143      2E312032 
+ 143      30323430 
+ 144 0041 3D686172 		.ascii	"=hard -mfpu=vfpv3-d16 -mno-thumb-interwork -marm -m"
+ 144      64202D6D 
+ 144      6670753D 
+ 144      76667076 
+ 144      332D6431 
+ 145 0074 61726368 		.ascii	"arch=armv7-r+fp+idiv -ggdb -O2 -fomit-frame-pointer"
+ 145      3D61726D 
+ 145      76372D72 
+ 145      2B66702B 
+ 145      69646976 
+ 146 00a7 202D6661 		.ascii	" -falign-functions=16 -ffunction-sections -fdata-se"
+ 146      6C69676E 
+ 146      2D66756E 
+ 146      6374696F 
+ 146      6E733D31 
+ 147 00da 6374696F 		.ascii	"ctions -fno-common\000"
+ 147      6E73202D 
+ARM GAS  /tmp/ccb3MHaQ.s 			page 4
+
+
+ 147      666E6F2D 
+ 147      636F6D6D 
+ 147      6F6E00
+ 148              	.LASF0:
+ 149 00ed 756E7369 		.ascii	"unsigned int\000"
+ 149      676E6564 
+ 149      20696E74 
+ 149      00
+ 150              	.LASF8:
+ 151 00fa 6C6F6E67 		.ascii	"long unsigned int\000"
+ 151      20756E73 
+ 151      69676E65 
+ 151      6420696E 
+ 151      7400
+ 152              	.LASF9:
+ 153 010c 6C6F6E67 		.ascii	"long long unsigned int\000"
+ 153      206C6F6E 
+ 153      6720756E 
+ 153      7369676E 
+ 153      65642069 
+ 154              	.LASF6:
+ 155 0123 73686F72 		.ascii	"short unsigned int\000"
+ 155      7420756E 
+ 155      7369676E 
+ 155      65642069 
+ 155      6E7400
+ 156              	.LASF4:
+ 157 0136 756E7369 		.ascii	"unsigned char\000"
+ 157      676E6564 
+ 157      20636861 
+ 157      7200
+ 158              	.LASF10:
+ 159 0144 63686172 		.ascii	"char\000"
+ 159      00
+ 160              	.LASF7:
+ 161 0149 6C6F6E67 		.ascii	"long int\000"
+ 161      20696E74 
+ 161      00
+ 162              	.LASF5:
+ 163 0152 73686F72 		.ascii	"short int\000"
+ 163      7420696E 
+ 163      7400
+ 164              	.LASF11:
+ 165 015c 5F426F6F 		.ascii	"_Bool\000"
+ 165      6C00
+ 166              	.LASF14:
+ 167 0162 2F686F6D 		.ascii	"/home/emirhan/Documents/gemstone/chibiOS-port/Chibi"
+ 167      652F656D 
+ 167      69726861 
+ 167      6E2F446F 
+ 167      63756D65 
+ 168 0195 4F532F64 		.ascii	"OS/demos/various/RT-ARMCR8-GENERIC\000"
+ 168      656D6F73 
+ 168      2F766172 
+ 168      696F7573 
+ 168      2F52542D 
+ 169              	.LASF3:
+ARM GAS  /tmp/ccb3MHaQ.s 			page 5
+
+
+ 170 01b8 7369676E 		.ascii	"signed char\000"
+ 170      65642063 
+ 170      68617200 
+ 171              	.LASF2:
+ 172 01c4 6C6F6E67 		.ascii	"long double\000"
+ 172      20646F75 
+ 172      626C6500 
+ 173              	.LASF13:
+ 174 01d0 2E2E2F2E 		.ascii	"../../../os/rt/src/chdebug.c\000"
+ 174      2E2F2E2E 
+ 174      2F6F732F 
+ 174      72742F73 
+ 174      72632F63 
+ 175              		.ident	"GCC: (Arm GNU Toolchain 13.3.Rel1 (Build arm-13.24)) 13.3.1 20240614"
+ARM GAS  /tmp/ccb3MHaQ.s 			page 6
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 chdebug.c
+
+NO UNDEFINED SYMBOLS

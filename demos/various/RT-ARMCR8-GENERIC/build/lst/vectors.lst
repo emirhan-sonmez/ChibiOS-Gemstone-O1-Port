@@ -1,0 +1,106 @@
+ARM GAS  /tmp/cc8AL21K.s 			page 1
+
+
+   1              	# 0 "../../../os/common/startup/ARMCRx/compilers/GCC/vectors.S"
+   2              	# 1 "/home/emirhan/Documents/gemstone/chibiOS-port/ChibiOS/demos/various/RT-ARMCR8-GENERIC//"
+   1              	...
+   0              	
+   0              	
+   1              	/*
+   2              	    ChibiOS - Copyright (C) 2006-2026 Giovanni Di Sirio.
+   3              	
+   4              	    Licensed under the Apache License, Version 2.0 (the "License");
+   5              	    you may not use this file except in compliance with the License.
+   6              	    You may obtain a copy of the License at
+   7              	
+   8              	        http://www.apache.org/licenses/LICENSE-2.0
+   9              	
+  10              	    Unless required by applicable law or agreed to in writing, software
+  11              	    distributed under the License is distributed on an "AS IS" BASIS,
+  12              	    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  13              	    See the License for the specific language governing permissions and
+  14              	    limitations under the License.
+  15              	*/
+  16              	
+  17              	/**
+  18              	 * @file    vectors.S
+  19              	 * @brief   ARMv7-R exception vectors.
+  20              	 *
+  21              	 * @addtogroup ARMCRx_GCC_VECTORS
+  22              	 * @{
+  23              	 */
+  24              	
+  25              	#if !defined(__DOXYGEN__)
+  26              	
+  27              	                .syntax unified
+  28              	                .section .vectors, "ax"
+  29              	                .arm
+  30              	                .align  5
+  31              	
+  32              	                .global _start
+  33              	                .global _vectors
+  34              	_start:
+  35              	_vectors:
+  36 0000 18F09FE5 	                ldr     pc, .Lreset
+  37 0004 18F09FE5 	                ldr     pc, .Lundefined
+  38 0008 18F09FE5 	                ldr     pc, .Lswi
+  39 000c 18F09FE5 	                ldr     pc, .Lprefetch
+  40 0010 18F09FE5 	                ldr     pc, .Labort
+  41 0014 00F020E3 	                nop
+  42 0018 14F09FE5 	                ldr     pc, .Lirq
+  43 001c 14F09FE5 	                ldr     pc, .Lfiq
+  44              	
+  45 0020 00000000 	.Lreset:        .word   Reset_Handler
+  46 0024 00000000 	.Lundefined:    .word   Und_Handler
+  47 0028 00000000 	.Lswi:          .word   Swi_Handler
+  48 002c 00000000 	.Lprefetch:     .word   Prefetch_Handler
+  49 0030 00000000 	.Labort:        .word   Abort_Handler
+  50 0034 00000000 	.Lirq:          .word   Irq_Handler
+  51 0038 00000000 	.Lfiq:          .word   Fiq_Handler
+  52              	
+ARM GAS  /tmp/cc8AL21K.s 			page 2
+
+
+  53              	                .text
+  54              	                .arm
+  55              	                .align  2
+  56              	
+  57              	                .weak   Reset_Handler
+  58              	Reset_Handler:
+  59 0000 FEFFFFEA 	                b       _crt0_entry
+  60              	
+  61              	                .weak   Und_Handler
+  62              	Und_Handler:
+  63              	                .weak   Swi_Handler
+  64              	Swi_Handler:
+  65              	                .weak   Prefetch_Handler
+  66              	Prefetch_Handler:
+  67              	                .weak   Abort_Handler
+  68              	Abort_Handler:
+  69              	                .weak   Irq_Handler
+  70              	Irq_Handler:
+  71              	                .weak   Fiq_Handler
+  72              	Fiq_Handler:
+  73              	                .weak   _unhandled_exception
+  74              	_unhandled_exception:
+  75 0004 FEFFFFEA 	                b       _unhandled_exception
+ARM GAS  /tmp/cc8AL21K.s 			page 3
+
+
+DEFINED SYMBOLS
+../../../os/common/startup/ARMCRx/compilers/GCC/vectors.S:30     .vectors:00000000 $a
+../../../os/common/startup/ARMCRx/compilers/GCC/vectors.S:34     .vectors:00000000 _start
+../../../os/common/startup/ARMCRx/compilers/GCC/vectors.S:35     .vectors:00000000 _vectors
+../../../os/common/startup/ARMCRx/compilers/GCC/vectors.S:45     .vectors:00000020 $d
+../../../os/common/startup/ARMCRx/compilers/GCC/vectors.S:58     .text:00000000 Reset_Handler
+../../../os/common/startup/ARMCRx/compilers/GCC/vectors.S:62     .text:00000004 Und_Handler
+../../../os/common/startup/ARMCRx/compilers/GCC/vectors.S:64     .text:00000004 Swi_Handler
+../../../os/common/startup/ARMCRx/compilers/GCC/vectors.S:66     .text:00000004 Prefetch_Handler
+../../../os/common/startup/ARMCRx/compilers/GCC/vectors.S:68     .text:00000004 Abort_Handler
+../../../os/common/startup/ARMCRx/compilers/GCC/vectors.S:70     .text:00000004 Irq_Handler
+../../../os/common/startup/ARMCRx/compilers/GCC/vectors.S:72     .text:00000004 Fiq_Handler
+../../../os/common/startup/ARMCRx/compilers/GCC/vectors.S:55     .text:00000000 $a
+../../../os/common/startup/ARMCRx/compilers/GCC/vectors.S:74     .text:00000004 _unhandled_exception
+
+UNDEFINED SYMBOLS
+_crt0_entry
