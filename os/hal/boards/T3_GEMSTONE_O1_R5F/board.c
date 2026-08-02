@@ -120,9 +120,27 @@ static void mpu_init(void) {
   mpu_set_region(2U, AM67_MSRAM_BASE, MPU_SIZE_512K,
                  MPU_NORMAL_WBWA | MPU_AP_RWRW);
 
-  /* Region 3: DDR, normal write-back write-allocate, shareable.*/
+  /* Region 3: DDR, normal write-back write-allocate, NON-shareable.
+
+     Deliberately not shareable. The Cortex-R5 has no hardware cache
+     coherency, and ARMv7-R permits an implementation to treat Normal
+     Shareable memory as Non-cacheable -- which this core does. Leaving
+     SHARED set here meant enabling SCTLR_C changed nothing measurable: the
+     cache was on and this region simply declined to use it.
+
+     Safe because this region holds only core-private memory -- code, data,
+     heap and the DDR thread stacks. Everything Linux touches lives in region
+     4 below, which stays NORMAL_NONCACHE and therefore coherent without any
+     maintenance.
+
+     ONE CONSEQUENCE WORTH KNOWING: reading R5F internal state from Linux via
+     /dev/mem -- the post-mortem thread-walk technique used to crack Q-32 --
+     now sees potentially stale data for anything in this region, because
+     writes may still be sitting in the D-cache. The trace buffer, IPC rings
+     and parameter storage are unaffected. If that technique is needed again,
+     either flush the cache first or boot a build with this line reverted.*/
   mpu_set_region(3U, AM67_DDR_BASE, MPU_SIZE_2G,
-                 MPU_NORMAL_WBWA | MPU_SHARED | MPU_AP_RWRW);
+                 MPU_NORMAL_WBWA | MPU_AP_RWRW);
 
   /* Region 4: resource table and trace buffer window, non-cacheable so
      the Linux host sees coherent data, never executable.*/
@@ -130,6 +148,54 @@ static void mpu_init(void) {
                  MPU_NORMAL_NONCACHE | MPU_SHARED | MPU_AP_RWRW | MPU_XN);
 
   sctlr_write(sctlr_read() | SCTLR_M);
+}
+
+/*
+ * Invalidate the whole L1 data cache, by set and way.
+ *
+ * Mandatory before SCTLR_C is set: cache contents are UNKNOWN out of reset on
+ * ARMv7-R, so enabling the cache without invalidating first can serve
+ * fabricated lines for addresses that were never read. Geometry comes from
+ * CCSIDR rather than being hardcoded, because the Cortex-R5 D-cache size is a
+ * synthesis option and this must not silently under-invalidate on a part
+ * configured differently.
+ */
+__attribute__((section(".tcm_probe")))
+static void dcache_invalidate_all(void) {
+  uint32_t ccsidr, sets, ways, line_shift, way_shift;
+  int32_t set, way;
+
+  /* CSSELR = level 1, data/unified. */
+  __asm volatile ("mcr p15, 2, %0, c0, c0, 0" :: "r" (0U));
+  __asm volatile ("isb" ::: "memory");
+  __asm volatile ("mrc p15, 1, %0, c0, c0, 0" : "=r" (ccsidr));
+
+  /* CCSIDR: LineSize[2:0] = log2(words per line) - 2, Associativity[12:3]
+     and NumSets[27:13] are both "minus one" encodings. */
+  line_shift = (ccsidr & 7U) + 4U;
+  ways       = ((ccsidr >> 3) & 0x3FFU);
+  sets       = ((ccsidr >> 13) & 0x7FFFU);
+
+  /* Way index sits in the top bits of the DCISW operand, positioned so that
+     the widest way number just fits: 32 - log2ceil(ways + 1). */
+  way_shift = 32U;
+  {
+    uint32_t w = ways;
+    do {
+      way_shift--;
+      w >>= 1;
+    } while (w != 0U);
+    /* __builtin_clz is not usable here: this runs before any library init. */
+  }
+
+  for (set = (int32_t)sets; set >= 0; set--) {
+    for (way = (int32_t)ways; way >= 0; way--) {
+      const uint32_t op = ((uint32_t)way << way_shift) |
+                          ((uint32_t)set << line_shift);
+      __asm volatile ("mcr p15, 0, %0, c7, c6, 2" :: "r" (op) : "memory");
+    }
+  }
+  __asm volatile ("dsb; isb" ::: "memory");
 }
 
 __attribute__((section(".tcm_probe")))
@@ -140,10 +206,30 @@ static void caches_init(void) {
   __asm volatile ("mcr p15, 0, %0, c7, c5, 6" :: "r" (0));
   __asm volatile ("dsb; isb" ::: "memory");
 
-  /* Instruction cache and branch prediction on. The data cache is left
-     disabled for bring-up, enable SCTLR_C here once cache maintenance is
-     in place for the shared-memory paths.*/
-  sctlr_write(sctlr_read() | SCTLR_I | SCTLR_Z);
+  /*
+    Data cache on.
+
+    Safe only because mpu_init() above already puts every window shared with
+    Linux into region 4 as NORMAL_NONCACHE: the resource table (0xA1100000),
+    the RemoteProc trace buffer (0xA1110000, including the fault block at
+    0xA1113F20) and the IPC window (0xA1120000, carrying both the MAVLink
+    rings and the 16 KiB parameter-storage image). Region 4 spans
+    0xA1100000..0xA1200000 while code, data and heap start at 0xA1240000, so
+    nothing cacheable overlaps anything the host reads. That is why
+    ipc_ring.c and ipc_storage.c need only a DMB and no cache maintenance.
+
+    Until 2026-08-02 this bit was left clear "for bring-up", so every data
+    access ran at DDR latency. Cost measured before enabling it: the IMU
+    delivered 86 Hz against a configured 100 Hz, the main loop could not hold
+    50 Hz, and EKF3 added ~6 ms per iteration -- enough to starve telemetry
+    until QGC dropped the link.
+
+    If anything shared with Linux ever starts reading stale -- trace output
+    freezing, QGC losing the link, parameters not persisting -- suspect a new
+    allocation placed outside region 4 before suspecting this line.
+  */
+  dcache_invalidate_all();
+  sctlr_write(sctlr_read() | SCTLR_I | SCTLR_Z | SCTLR_C);
 }
 
 /*
