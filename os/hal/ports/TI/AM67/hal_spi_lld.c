@@ -178,6 +178,16 @@ void am67_spi0_imu_enable(void) {
   *(volatile uint32_t *)(bank + AM67_GPIO_CLR_DATA_OFFSET) = mask;
 }
 
+/*
+  Set once the McSPI module has been soft reset for this driver start. See
+  mcspi_init(): the reset must NOT be repeated on every reconfigure, because
+  spiStart() runs again on every chip-select change and the reset takes the
+  peripheral down underneath whichever sensor is not currently selected.
+
+  Cleared in spi_lld_stop() so a genuine restart still gets a clean module.
+*/
+static bool mcspi_reset_done;
+
 /**
  * @brief   Waits for a CHSTAT flag with a bounded loop.
  *
@@ -245,20 +255,39 @@ static void mcspi_init(SPIDriver *spip) {
      CHSTAT is polled (K3 HL wrapper).*/
   spi_putreg(spip, MCSPI_HL_SYSCONFIG_OFFSET, MCSPI_HL_SYSCONFIG_NOIDLE);
 
-  /* Module soft reset. The wait is bounded: if the module clock is gated
-     RESETDONE never rises and an unbounded loop here would freeze the
-     whole system, spi_lld_start() runs in a lock zone.*/
-  spi_putreg(spip, MCSPI_SYSCONFIG_OFFSET,
-             spi_getreg(spip, MCSPI_SYSCONFIG_OFFSET) |
-             MCSPI_SYSCONFIG_SOFTRESET);
-  for (i = 0U; i < MCSPI_WAIT_LOOPS; i++) {
-    if ((spi_getreg(spip, MCSPI_SYSSTATUS_OFFSET) &
-         MCSPI_SYSSTATUS_RESETDONE) != 0U) {
-      break;
+  /* Module soft reset, ONCE per driver start and not on every reconfigure.
+
+     spiStart() is called again on every chip-select change, because switching
+     device means switching channel. With two devices sharing this controller
+     -- an INS at 100 Hz and a barometer at 50 Hz -- that reached roughly 150
+     module resets per second, and a soft reset takes the whole peripheral
+     down including its pad control while transfers are only microseconds
+     apart. Measured consequence: the LPS22DF on CS1 ran for ~950 samples and
+     then came back with CTRL_REG1 and CTRL_REG2 both zeroed, which is
+     power-down -- the part was being reset out from under its driver.
+
+     Nothing below depends on the reset having happened: MODULCTRL, CHCONF,
+     CHCTRL and the interrupt registers are all written unconditionally
+     afterwards, so a reconfigure is complete without it. The reset is only
+     needed to put the module into a known state the first time.
+
+     Do not "optimise" this by skipping mcspi_init() entirely on a channel
+     change -- CHCONF is per channel and SPIENSLV must be reprogrammed, which
+     is exactly what the rest of this function does. */
+  if (!mcspi_reset_done) {
+    spi_putreg(spip, MCSPI_SYSCONFIG_OFFSET,
+               spi_getreg(spip, MCSPI_SYSCONFIG_OFFSET) |
+               MCSPI_SYSCONFIG_SOFTRESET);
+    for (i = 0U; i < MCSPI_WAIT_LOOPS; i++) {
+      if ((spi_getreg(spip, MCSPI_SYSSTATUS_OFFSET) &
+           MCSPI_SYSSTATUS_RESETDONE) != 0U) {
+        break;
+      }
     }
-  }
-  if (i >= MCSPI_WAIT_LOOPS) {
-    return;
+    if (i >= MCSPI_WAIT_LOOPS) {
+      return;
+    }
+    mcspi_reset_done = true;
   }
 
   spi_putreg(spip, MCSPI_SYSCONFIG_OFFSET,
@@ -437,6 +466,8 @@ void spi_lld_start(SPIDriver *spip) {
  * @notapi
  */
 void spi_lld_stop(SPIDriver *spip) {
+
+  mcspi_reset_done = false;
 
   if (spip->state == SPI_READY) {
 #if AM67_SPI_USE_MCSPI0 == TRUE
