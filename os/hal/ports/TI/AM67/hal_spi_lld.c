@@ -70,6 +70,10 @@
    responsive, not to be generous.*/
 #define MCSPI_WAIT_LOOPS            200000U
 
+/* RX0 is one word deep, so one read empties it. The bound only exists so a
+   gated module clock, which leaves RXS stuck high, cannot spin forever. */
+#define MCSPI_DRAIN_LOOPS           8U
+
 /*===========================================================================*/
 /* Driver exported variables.                                                */
 /*===========================================================================*/
@@ -190,6 +194,36 @@ static bool spi_wait_chstat(SPIDriver *spip, uint32_t flag) {
     }
   }
   return false;
+}
+
+/**
+ * @brief   Discards any word left sitting in the receive register.
+ * @details RX0 is only emptied by being read, and several paths can leave a
+ *          word in it that no caller ever collected: either timeout branch of
+ *          @p spi_lld_polled_exchange(), @p spi_lld_abort(), and whatever
+ *          Linux's omap2_mcspi left behind before it was unbound.
+ *
+ *          A single stale word is not a lost byte, it is a one-position shift
+ *          of every subsequent word in the transaction -- the first read
+ *          returns the leftover and each later read returns its predecessor.
+ *          Across a register block whose neighbours differ in one bit that
+ *          presents as one wrong bit rather than as obvious garbage, and it
+ *          alternates on and off as the leftover is consumed and recreated.
+ *
+ *          Bounded, because RXS never clearing means the module clock is gone
+ *          and this runs inside a lock zone.
+ *
+ * @param[in] spip      pointer to the @p SPIDriver object
+ */
+static void spi_drain_rx(SPIDriver *spip) {
+  uint32_t i;
+
+  for (i = 0U; i < MCSPI_DRAIN_LOOPS; i++) {
+    if ((spi_ch_getreg(spip, MCSPI_CHSTAT0_OFFSET) & MCSPI_CHSTAT_RXS) == 0U) {
+      return;
+    }
+    (void)spi_ch_getreg(spip, MCSPI_RX0_OFFSET);
+  }
 }
 
 /**
@@ -429,6 +463,12 @@ void spi_lld_stop(SPIDriver *spip) {
  */
 void spi_lld_select(SPIDriver *spip) {
 
+  /* Start every transaction with an empty receive register. Anything still in
+     there belongs to a previous transaction and would shift this one by a
+     word -- see spi_drain_rx(). Done before FORCE so the drain cannot be
+     mistaken for data clocked in under this chip select. */
+  spi_drain_rx(spip);
+
   spi_ch_putreg(spip, MCSPI_CHCONF0_OFFSET,
                 spi_ch_getreg(spip, MCSPI_CHCONF0_OFFSET) |
                 MCSPI_CHCONF_FORCE);
@@ -529,6 +569,7 @@ void spi_lld_abort(SPIDriver *spip) {
 
   spi_putreg(spip, MCSPI_IRQENABLE_OFFSET, 0U);
   spi_putreg(spip, MCSPI_IRQSTATUS_OFFSET, 0xFFFFFFFFU);
+  spi_drain_rx(spip);
   spip->remaining = 0U;
 }
 
@@ -547,14 +588,20 @@ uint16_t spi_lld_polled_exchange(SPIDriver *spip, uint16_t frame) {
 
   spip->xfer_timeout = false;
 
+  /* Both bail-outs below drain before returning. A timeout that leaves a word
+     in RX0 does not corrupt the transfer it aborts -- that one is already
+     reported failed -- it corrupts the NEXT transfer, silently, by shifting
+     every word in it by one position. */
   if (!spi_wait_chstat(spip, MCSPI_CHSTAT_TXS)) {
     spip->xfer_timeout = true;
+    spi_drain_rx(spip);
     return 0U;
   }
   spi_ch_putreg(spip, MCSPI_TX0_OFFSET, (uint32_t)frame);
 
   if (!spi_wait_chstat(spip, MCSPI_CHSTAT_RXS)) {
     spip->xfer_timeout = true;
+    spi_drain_rx(spip);
     return 0U;
   }
   return (uint16_t)spi_ch_getreg(spip, MCSPI_RX0_OFFSET);
