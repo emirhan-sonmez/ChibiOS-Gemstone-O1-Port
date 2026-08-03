@@ -55,15 +55,19 @@ extern "C" {
      time base / the other output). */
   void ehrpwm_out_low(uint32_t base, bool output_b);
 
-  /* Re-writes AQCTLA/AQCTLB (and releases any stray software force) without
-     touching CMPA/CMPB, TBCTR, or TBPRD -- safe to call every tick. Added
-     2026-07-30: AQCTLA/B is otherwise written exactly once, in
-     ehrpwm_out_enable(), and never revisited -- the same
+  /* Re-writes the output configuration -- CMPCTL, TBPRD, TBCTL and
+     AQCTLA/AQCTLB, plus release of any stray software force -- without
+     touching CMPA/CMPB or TBCTR, so a commanded pulse width is never
+     disturbed and the counter is never reset mid-period. Safe every tick.
+
+     Added 2026-07-30 for AQCTLA/B alone, which was otherwise written exactly
+     once in ehrpwm_out_enable() and never revisited -- the same
      written-once-never-reasserted shape that caused the earlier TBPRD/
-     frequency bug (see RCOutput.cpp's RCOUTPUT_VERIFIED_FREQ_HZ). Call this
-     periodically to close the same class of gap for the action-qualifier
-     config. */
-  void ehrpwm_out_reassert(uint32_t base, bool output_b);
+     frequency bug (see RCOutput.cpp's RCOUTPUT_VERIFIED_FREQ_HZ). Widened
+     2026-08-03 to the time-base registers, which had the identical gap and a
+     concrete competing writer: Linux's pwm-tiehrpwm programs TBCTL/TBPRD/CMPCTL
+     when gemstone-r5f-setup.service enables the peripheral's clock at boot. */
+  void ehrpwm_out_reassert(uint32_t base, bool output_b, uint32_t frame_hz);
 
   /* Register readbacks (diagnostics / running-detection). */
   uint16_t ehrpwm_read_tbctr(uint32_t base);

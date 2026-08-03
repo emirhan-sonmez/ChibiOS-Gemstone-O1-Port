@@ -146,8 +146,30 @@ void ehrpwm_out_set_pulse_us(uint32_t base, bool output_b, uint32_t pulse_us) {
   epwm_wr16(base, output_b ? EPWM_CMPB : EPWM_CMPA, (uint16_t)cmp);
 }
 
-void ehrpwm_out_reassert(uint32_t base, bool output_b) {
+void ehrpwm_out_reassert(uint32_t base, bool output_b, uint32_t frame_hz) {
   uint16_t force = epwm_rd16(base, EPWM_AQCSFRC);
+
+  /* Time-base and compare-load configuration, reasserted alongside the action
+     qualifier. These were previously written once in ehrpwm_start() and never
+     revisited, which left the last writer at boot owning them permanently --
+     and Linux is a writer: gemstone-r5f-setup.service brings each peripheral's
+     clock up by exporting its sysfs pwm0 and writing period/duty/enable, and
+     pwm0 is channel A. Its pwm-tiehrpwm driver programs TBCTL, TBPRD and
+     CMPCTL with its own values, racing this firmware during the same startup.
+
+     TBCTR is deliberately NOT written here. Zeroing the counter mid-period
+     stretches or truncates the period being emitted while the pulse width
+     stays put -- the exact glitch ehrpwm_start()'s idempotence guard exists to
+     avoid. Everything below is idempotent and glitch-free when the values
+     already match, which is the normal case.
+
+     A TBPRD restored from under a stale CMPA leaves that one channel's pulse
+     scaled to the wrong period for at most one frame: ehrpwm_out_set_pulse_us()
+     recomputes the compare from the live TBPRD on the next write, and the
+     caller writes every tick. */
+  epwm_wr16(base, EPWM_CMPCTL, CMPCTL_SHADOW_LOAD_ZERO);
+  epwm_wr16(base, EPWM_TBPRD, epwm_tbprd_for(frame_hz));
+  epwm_wr16(base, EPWM_TBCTL, TBCTL_CTRMODE_UP | TBCTL_PRESCALE);
 
   if (!output_b) {
     epwm_wr16(base, EPWM_AQCTLA, AQCTLA_UP_PWM);

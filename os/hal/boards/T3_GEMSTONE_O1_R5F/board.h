@@ -140,8 +140,13 @@
  * (23100000/23110000/23120000.pwm fck = 125000000) and confirmed by scope
  * (50 Hz with period = 2500000 ticks). All three ECAP instances share it.
  *
- * NOTE: EHRPWM0_B is deliberately NOT defined/used -- its pad is physical pin 8,
- * reserved for the UART1 console TX.
+ * EHRPWM0_B -> GPIO14 (pin 8). Freed 2026-08-03: this pad was the UART1
+ * console TX until MAVLink moved to the shared-memory rings (DR-016) and the
+ * stock overlay k3-am67a-t3-gem-o1-pwm-epwm0-gpio5-gpio14.dtbo reconfigured
+ * main_uart1 to an RX-only pin group (pad 0x01AC, pin 10) while taking pad
+ * 0x01B0 for EHRPWM0_B. The four flight outputs are now EHRPWM0_A/B and
+ * EHRPWM1_A/B; the ECAP bases below are retained but no longer driven by
+ * AP_HAL_ChibiOS_K3::RCOutput.
  */
 #define AM67_EPWM1_BASE         0x23010000U
 #define AM67_ECAP0_BASE         0x23100000U
